@@ -191,4 +191,129 @@ document.addEventListener('click', (event) => {
 		event.stopImmediatePropagation();
 	}
 }, true);
+addManagedPosition = async function(event) {
+	event.preventDefault();
+	const form = event.currentTarget;
+	const data = new FormData(form);
+	const pid = String(data.get('pid') || '').trim();
+	const email = String(data.get('email') || '').trim();
+	if (!email) {
+		alert('An email address is required for every position.');
+		form.querySelector('input[name="email"]')?.focus();
+		return;
+	}
+	if (people.some((person) => String(person[5]).toLowerCase() === pid.toLowerCase())) {
+		alert('That PID is already in use.');
+		return;
+	}
+	const id = `managed-${Date.now()}`;
+	const photo = await readImageFile(form.querySelector('input[name="photoFile"]'), String(data.get('photo') || `https://i.pravatar.cc/160?u=${id}`));
+	const reportsTo = String(data.get('reportsTo') || '');
+	if (reportsTo && !people.some((person) => person[0] === reportsTo && person[3] === dept)) {
+		alert('Choose a supervisor from the department you are managing.');
+		return;
+	}
+	const newPerson = [id, String(data.get('name')).trim(), String(data.get('title')).trim(), dept, String(data.get('level')), pid, String(data.get('phone') || 'Not listed'), String(data.get('desk') || 'Not listed'), email, photo, reportsTo];
+	people.push(newPerson);
+	localStorage.setItem('org-chart-people', JSON.stringify(people));
+	selected = null;
+	const searchInput = document.getElementById('search');
+	if (searchInput) searchInput.value = '';
+	closeAdd();
+	render();
+};
+const departmentScopedPositionPanel = showPositionAdmin;
+showPositionAdmin = function() {
+	departmentScopedPositionPanel();
+	const form = document.querySelector('.admin-modal');
+	if (!form || !dept) return;
+	const email = form.querySelector('input[name="email"]');
+	if (email) email.required = true;
+	const departmentField = form.querySelector('input[name="department"]');
+	if (departmentField) {
+		departmentField.value = dept;
+		departmentField.readOnly = true;
+	}
+	const supervisorField = form.querySelector('select[name="reportsTo"]');
+	if (supervisorField) {
+		const currentSelection = supervisorField.value;
+		supervisorField.innerHTML = `<option value="">Top level / no supervisor</option>${people.filter((person) => person[3] === dept).map((person) => `<option value="${esc(person[0])}" ${person[0] === currentSelection ? 'selected' : ''}>${esc(person[1])} (${esc(person[5])})</option>`).join('')}`;
+	}
+};
+document.head.insertAdjacentHTML('beforeend', '<style>.canvas{height:min(72vh,820px);min-height:400px;overflow:hidden}.tree{display:flex;flex-direction:column;align-items:stretch;width:100%;height:100%;min-width:0!important;min-height:0;padding:0;overflow:hidden}.chart-fit-hint{flex:0 0 auto;padding:8px 0 12px}.chart-fit-viewport{position:relative;flex:1;min-height:0;width:100%;overflow:hidden}.chart-fit-content{position:absolute;left:50%;top:50%;display:flex;flex-direction:column;align-items:center;width:max-content;transform-origin:center center;will-change:transform}.tree-branch,.tree-children{flex:0 0 auto}@media(max-width:560px){.canvas{height:68vh;min-height:360px;padding:14px}}</style>');
+function fitOrgChart() {
+	const tree = document.querySelector('#view .tree');
+	if (!tree) return;
+	const hint = tree.querySelector('.hint');
+	const viewport = document.createElement('div');
+	viewport.className = 'chart-fit-viewport';
+	const content = document.createElement('div');
+	content.className = 'chart-fit-content';
+	[...tree.children].forEach((child) => {
+		if (child !== hint) content.appendChild(child);
+	});
+	tree.replaceChildren();
+	if (hint) {
+		hint.classList.add('chart-fit-hint');
+		tree.appendChild(hint);
+	}
+	viewport.appendChild(content);
+	tree.appendChild(viewport);
+	requestAnimationFrame(() => {
+		const naturalWidth = Math.max(content.scrollWidth, content.getBoundingClientRect().width);
+		const naturalHeight = Math.max(content.scrollHeight, content.getBoundingClientRect().height);
+		const availableWidth = Math.max(1, viewport.clientWidth - 24);
+		const availableHeight = Math.max(1, viewport.clientHeight - 24);
+		if (!naturalWidth || !naturalHeight) return;
+		const scale = Math.min(2, availableWidth / naturalWidth, availableHeight / naturalHeight);
+		content.style.transform = `translate(-50%, -50%) scale(${scale})`;
+	});
+}
+const renderBeforeAutoFit = render;
+render = function() {
+	renderBeforeAutoFit();
+	document.body.classList.toggle('department-open', Boolean(dept));
+	fitOrgChart();
+};
+window.addEventListener('resize', fitOrgChart);
+document.head.insertAdjacentHTML('beforeend', '<style>body.department-open main{width:100%;max-width:none;margin:0;padding:20px 3vw 28px}body.department-open .intro{display:none}body.department-open .section{margin-top:0}body.department-open .back{margin-bottom:12px}body.department-open .heading{margin-bottom:14px}body.department-open .chart-layout{grid-template-columns:minmax(0,1fr) 270px;gap:18px;align-items:stretch}body.department-open .canvas{height:calc(100vh - 205px);min-height:420px;max-height:1000px;padding:24px;background:#fff;border:2px solid #fff;outline:1px solid #cbd7dd;box-shadow:0 5px 24px #003b5c12}body.department-open .tree{min-width:0!important}@media(max-width:760px){body.department-open main{padding:16px 16px 24px}body.department-open .chart-layout{grid-template-columns:minmax(0,1fr)}body.department-open .canvas{height:calc(100vh - 190px);min-height:360px;padding:14px}body.department-open .panel{margin-top:16px}}');
+function editReportsToOptions(person, departmentName) {
+	const supervisors = people.filter((entry) => entry[0] !== person[0] && (entry[3] === departmentName || entry[0] === 'ceo'));
+	const selectedSupervisor = supervisors.some((entry) => entry[0] === person[10]) ? person[10] : '';
+	return `<option value="" ${selectedSupervisor === '' ? 'selected' : ''}>Top level / no supervisor</option>${supervisors.map((entry) => `<option value="${esc(entry[0])}" ${entry[0] === selectedSupervisor ? 'selected' : ''}>${esc(entry[1])} (${esc(entry[5])})</option>`).join('')}`;
+}
+function updateEditDepartment(select, id) {
+	const person = people.find((entry) => entry[0] === id);
+	if (!person) return;
+	const form = select.form;
+	const levelSelect = form.querySelector('select[name="level"]');
+	const reportsTo = form.querySelector('select[name="reportsTo"]');
+	if (levelSelect) levelSelect.innerHTML = positionLevelOptions(select.value, person[4]);
+	if (reportsTo) reportsTo.innerHTML = editReportsToOptions(person, select.value);
+}
+showEditPosition = function(id) {
+	requireAdmin(() => {
+		const person = people.find((entry) => entry[0] === id);
+		if (!person) return;
+		document.getElementById('modal').innerHTML = `<div class="modal" onclick="if(event.target===this)closeAdd()"><form class="form admin-modal" onsubmit="saveEditedPosition(event, '${esc(id)}')"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Position administrator</span><h2>Edit position</h2><p>Update this person’s information and reporting relationship.</p><div class="admin-grid"><label>Person name<input name="name" value="${esc(person[1])}" required></label><label>Position ID<input name="pid" value="${esc(person[5])}" required></label><label class="admin-wide">Full position title<input name="title" value="${esc(person[2])}" required></label><label>Department<select name="department" onchange="updateEditDepartment(this, '${esc(id)}')">${departmentOptions(person[3])}</select></label><label>Responsibility category<select name="level">${positionLevelOptions(person[3], person[4])}</select></label><label class="admin-wide">Reports to<select name="reportsTo">${editReportsToOptions(person, person[3])}</select><small class="hierarchy-note">The chart will connect this position underneath the selected supervisor.</small></label><label>Mobile phone<input name="phone" value="${esc(person[6])}"></label><label>Desk phone<input name="desk" value="${esc(person[7])}"></label><label class="admin-wide">Email<input name="email" type="email" value="${esc(person[8])}" required></label><label class="admin-wide">Photo URL<input name="photo" value="${esc(person[9])}" placeholder="https://... or choose a file"></label><label class="admin-wide">Or choose a new photo file<input name="photoFile" type="file" accept="image/*"></label></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Cancel</button><button class="primary">Save position</button></div></form></div>`;
+	});
+};
+saveEditedPosition = async function(event, id) {
+	event.preventDefault();
+	const person = people.find((entry) => entry[0] === id);
+	if (!person) return;
+	const form = event.currentTarget;
+	const data = new FormData(form);
+	const pid = String(data.get('pid')).trim();
+	if (people.some((entry) => entry[0] !== id && entry[5].toLowerCase() === pid.toLowerCase())) { alert('That PID is already in use.'); return; }
+	const department = String(data.get('department'));
+	const reportsTo = String(data.get('reportsTo') || '');
+	if (reportsTo && !people.some((entry) => entry[0] === reportsTo && (entry[3] === department || entry[0] === 'ceo'))) { alert('Choose a supervisor from the selected department.'); return; }
+	const email = String(data.get('email') || '').trim();
+	if (!email) { alert('An email address is required for every position.'); form.querySelector('input[name="email"]')?.focus(); return; }
+	const photo = await readImageFile(form.querySelector('input[name="photoFile"]'), String(data.get('photo') || person[9]));
+	person[1] = String(data.get('name')).trim(); person[2] = String(data.get('title')).trim(); person[3] = department; person[4] = String(data.get('level')); person[5] = pid; person[6] = String(data.get('phone') || 'Not listed'); person[7] = String(data.get('desk') || 'Not listed'); person[8] = email; person[9] = photo; person[10] = reportsTo;
+	localStorage.setItem('org-chart-people', JSON.stringify(people));
+	selected = person; dept = department; closeAdd(); render();
+};
 </script></body></html>
