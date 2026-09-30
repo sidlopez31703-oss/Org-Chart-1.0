@@ -15,6 +15,14 @@ create table if not exists public.org_state (
   updated_by uuid references auth.users(id) on delete set null
 );
 
+create table if not exists public.org_view_links (
+  id smallint primary key check (id = 1),
+  token_hash text not null,
+  active boolean not null default true,
+  created_at timestamptz not null default now(),
+  created_by uuid references auth.users(id) on delete set null
+);
+
 insert into public.org_state (id, state)
 values (1, '{}'::jsonb)
 on conflict (id) do nothing;
@@ -67,8 +75,8 @@ begin
     select count(*) into admin_count
     from public.org_members
     where role = 'admin' and user_id <> new.user_id;
-    if admin_count >= 2 then
-      raise exception 'A maximum of two org chart administrators is allowed.';
+    if admin_count >= 10 then
+      raise exception 'A maximum of ten org chart administrators is allowed.';
     end if;
   end if;
   new.email := lower(trim(new.email));
@@ -83,9 +91,11 @@ for each row execute function public.enforce_org_admin_limit();
 
 alter table public.org_members enable row level security;
 alter table public.org_state enable row level security;
+alter table public.org_view_links enable row level security;
 
 revoke all on public.org_members from anon, authenticated;
 revoke all on public.org_state from anon, authenticated;
+revoke all on public.org_view_links from anon, authenticated;
 grant select on public.org_members to authenticated;
 grant select on public.org_state to authenticated;
 grant update (state, updated_at, updated_by) on public.org_state to authenticated;

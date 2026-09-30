@@ -6,6 +6,8 @@
   let saveTimer;
   let realtimeChannel = null;
   let lastServerState = null;
+  let viewerLinkActive = false;
+  let viewerPollTimer = null;
   let lastActivatedSessionKey = null;
   let activationQueue = Promise.resolve();
   let suppressStorageSync = false;
@@ -41,6 +43,7 @@
 
   document.head.insertAdjacentHTML('beforeend', '<style>body.org-security-locked>:not(#org-security-gate){display:none!important}#org-security-gate{position:fixed;inset:0;z-index:99999;display:grid;place-items:center;padding:22px;background:#eef3f5;font-family:Arial,Helvetica,sans-serif;color:#14374b}.security-card{width:min(100%,460px);padding:34px;background:#fff;border:1px solid #cad7dd;box-shadow:0 18px 55px #003b5c20}.security-mark{width:42px;height:42px;display:grid;place-items:center;margin-bottom:24px;background:#003b5c;color:#fff;font-size:14px;font-weight:700}.security-eyebrow{font-size:10px;text-transform:uppercase;letter-spacing:.13em;color:#0072a8}.security-card h1{font-family:Arial,Helvetica,sans-serif;font-size:27px;letter-spacing:0;margin:10px 0}.security-card p{font-size:14px;line-height:1.5;color:#52636b}.security-card label{display:block;font-weight:700;font-size:12px;margin:18px 0}.security-card input,.security-card select{display:block;width:100%;padding:12px;margin-top:7px;border:1px solid #aebfc8;background:#fff;color:#000;font:inherit}.security-card button{border:1px solid #003b5c;background:#003b5c;color:#fff;padding:12px 15px;font-weight:700;cursor:pointer}.security-card button.secondary-action{background:#fff;color:#003b5c}.security-card .security-actions{display:flex;gap:8px;flex-wrap:wrap}.security-card #security-feedback{margin-top:14px;font-size:12px;color:#003b5c}.org-session-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:8px 6%;background:#eaf2f5;color:#14374b;font-size:11px}.org-session-toolbar button{border:1px solid #b9cbd4;background:white;padding:6px 10px;color:#003b5c;font-size:11px}.share-list{display:grid;gap:8px;margin-top:18px}.share-member{display:grid;grid-template-columns:minmax(0,1fr) 115px auto auto;gap:8px;align-items:center;padding:10px;background:#f2f6f8;border:1px solid #cfdae0;font-size:12px}.share-member select{margin:0}.share-member button{padding:8px;font-size:11px}.share-member button.remove-share{color:#963d3d;border-color:#d2b5b5;background:white}@media(max-width:520px){.security-card{padding:25px}.share-member{grid-template-columns:1fr 95px}.share-member button{grid-row:2}}</style>');
 
+  document.head.insertAdjacentHTML('beforeend', '<style>.share-member input{min-width:0;width:100%;padding:8px;border:1px solid #b9cbd4;background:#fff;color:#000}.link-tools{display:flex;gap:8px;flex-wrap:wrap}.link-result{display:flex;gap:8px;align-items:center;margin-top:10px}.link-result input{min-width:0;flex:1;padding:8px;border:1px solid #b9cbd4}.link-warning{font-size:11px;color:#52636b;margin-top:8px}</style>');
   window.orgAuthRole = null;
   window.requireAdmin = (callback) => {
     if (currentRole === 'admin') callback();
@@ -220,11 +223,20 @@
     document.querySelector('.org-session-toolbar')?.remove();
     const toolbar = document.createElement('div');
     toolbar.className = 'org-session-toolbar';
-    toolbar.innerHTML = `<span>Signed in: ${escapeHtml(currentUser.email)} · ${currentRole === 'admin' ? 'Administrator' : 'Viewer'}</span><span id="org-save-status">Shared directory</span><button id="org-sign-out" type="button">Sign out</button>`;
+    const displayUser = currentRole === 'link-viewer' ? 'Shared viewing link' : currentUser?.email || 'Signed in';
+    const displayRole = currentRole === 'admin' ? 'Administrator' : 'Viewer';
+    toolbar.innerHTML = `<span>${escapeHtml(displayUser)} · ${displayRole}</span><span id="org-save-status">Shared directory</span><button id="org-sign-out" type="button">${currentRole === 'link-viewer' ? 'Exit shared view' : 'Sign out'}</button>`;
     const header = document.querySelector('.top');
     header?.insertAdjacentElement('afterend', toolbar);
     document.getElementById('org-sign-out').addEventListener('click', async () => {
       clearLocalDirectory();
+      if (currentRole === 'link-viewer') {
+        sessionStorage.removeItem('org-chart-view-token');
+        viewerLinkActive = false;
+        if (viewerPollTimer) clearInterval(viewerPollTimer);
+        showLogin();
+        return;
+      }
       currentRole = null;
       currentUser = null;
       window.orgAuthRole = null;
@@ -241,7 +253,7 @@
     shareButton.type = 'button';
     shareButton.className = 'secondary';
     shareButton.id = 'org-share-access';
-    shareButton.textContent = 'Share access';
+    shareButton.textContent = 'Sharing & admins';
     shareButton.hidden = currentRole !== 'admin';
     shareButton.addEventListener('click', showSharingPanel);
     document.getElementById('org-share-access')?.remove();
@@ -365,12 +377,19 @@
     target.innerHTML = '<p>Loading people with access…</p>';
     try {
       const result = await callSharingFunction({ action: 'list' });
-      target.innerHTML = (result.members || []).map((member) => `<div class="share-member"><strong>${escapeHtml(member.email)}</strong><select aria-label="Role for ${escapeHtml(member.email)}"><option value="viewer" ${member.role === 'viewer' ? 'selected' : ''}>Viewer</option><option value="admin" ${member.role === 'admin' ? 'selected' : ''}>Administrator</option></select><button type="button" data-share-action="role" data-email="${escapeHtml(member.email)}">Save role</button><button type="button" class="remove-share" data-share-action="remove" data-email="${escapeHtml(member.email)}">Remove</button></div>`).join('') || '<p>No one has been shared yet.</p>';
+      target.innerHTML = (result.members || []).map((member) => `<div class="share-member"><input type="email" aria-label="Email for ${escapeHtml(member.email)}" value="${escapeHtml(member.email)}"><select aria-label="Role for ${escapeHtml(member.email)}"><option value="viewer" ${member.role === 'viewer' ? 'selected' : ''}>Viewer</option><option value="admin" ${member.role === 'admin' ? 'selected' : ''}>Administrator</option></select><button type="button" data-share-action="update-member" data-email="${escapeHtml(member.email)}">Save</button><button type="button" class="remove-share" data-share-action="remove" data-email="${escapeHtml(member.email)}">Revoke</button></div>`).join('') || '<p>No named accounts have access yet. People with the viewer link can view without email accounts.</p>';
       target.querySelectorAll('button[data-share-action]').forEach((button) => button.addEventListener('click', async () => {
         try {
-          const action = button.dataset.shareAction === 'remove' ? 'remove' : 'set-role';
-          const role = button.parentElement.querySelector('select').value;
-          await callSharingFunction({ action, email: button.dataset.email, role });
+          const action = button.dataset.shareAction;
+          if (action === 'update-member') {
+            const row = button.closest('.share-member');
+            const newEmail = row.querySelector('input[type="email"]').value.trim();
+            const role = row.querySelector('select').value;
+            await callSharingFunction({ action, email: button.dataset.email, newEmail, role });
+          } else {
+            if (!confirm(`Revoke directory access for ${button.dataset.email}?`)) return;
+            await callSharingFunction({ action, email: button.dataset.email });
+          }
           await refreshShareList();
         } catch (error) { alert(error.message); }
       }));
@@ -381,7 +400,30 @@
 
   function showSharingPanel() {
     window.requireAdmin(() => {
-      document.getElementById('modal').innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Access control</span><h2>Share the directory</h2><p>Only invited email addresses can sign in. A maximum of two accounts can be administrators.</p><form id="org-invite-form" class="admin-section"><h3>Invite someone</h3><div class="admin-grid"><label class="admin-wide">Email address<input name="email" type="email" required placeholder="name@work.org"></label><label>Access level<select name="role"><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Share access</button></div></form><div class="admin-section"><h3>People with access</h3><div id="org-share-members" class="share-list"></div></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button></div></section></div>`;
+      document.getElementById('modal').innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Access control</span><h2>Share the directory</h2><p>Anyone with the private viewer link can view. Link holders can forward it, so revoke or rotate it if it is exposed. Signed-in administrators can edit. Up to ten admins are allowed.</p><div class="admin-section"><h3>Viewer link</h3><p id="org-view-link-status">Checking link status…</p><div class="link-tools"><button type="button" class="primary" id="org-create-view-link">Create / rotate viewer link</button><button type="button" class="secondary" id="org-revoke-view-link">Revoke viewer link</button></div><div id="org-view-link-result"></div></div><form id="org-invite-form" class="admin-section"><h3>Named access</h3><p>Optional email-based accounts can be assigned Viewer or Administrator access.</p><div class="admin-grid"><label class="admin-wide">Email address<input name="email" type="email" required placeholder="person@example.com"></label><label>Access level<select name="role"><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Invite by email</button></div></form><div class="admin-section"><h3>Named accounts</h3><p>Change an account email or role, or revoke that account’s access. Revoking access does not delete their Supabase identity.</p><div id="org-share-members" class="share-list"></div></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button></div></section></div>`;
+      document.getElementById('org-create-view-link').addEventListener('click', async () => {
+        const button = document.getElementById('org-create-view-link');
+        button.disabled = true;
+        try {
+          const result = await callSharingFunction({ action: 'create-view-link' });
+          document.getElementById('org-view-link-result').innerHTML = `<div class="link-result"><input id="org-view-link-url" aria-label="Viewer link" readonly value="${escapeHtml(result.url)}"><button type="button" class="secondary" id="org-copy-view-link">Copy link</button></div><p class="link-warning">Anyone who receives this link can view the directory. Rotate or revoke it if it is exposed.</p>`;
+          document.getElementById('org-copy-view-link').addEventListener('click', async () => {
+            const input = document.getElementById('org-view-link-url');
+            try { await navigator.clipboard.writeText(input.value); alert('Viewer link copied. Anyone with it can view the directory.'); }
+            catch { input.focus(); input.select(); document.execCommand('copy'); alert('Viewer link copied. Anyone with it can view the directory.'); }
+          });
+          document.getElementById('org-view-link-status').textContent = 'Viewer link active. Creating a new one invalidates the previous link.';
+        } catch (error) { alert(error.message); }
+        finally { button.disabled = false; }
+      });
+      document.getElementById('org-revoke-view-link').addEventListener('click', async () => {
+        if (!confirm('Revoke the current viewer link? Anyone using it will lose access.')) return;
+        try {
+          await callSharingFunction({ action: 'revoke-view-link' });
+          document.getElementById('org-view-link-status').textContent = 'Viewer link revoked.';
+          document.getElementById('org-view-link-result').replaceChildren();
+        } catch (error) { alert(error.message); }
+      });
       document.getElementById('org-invite-form').addEventListener('submit', async (event) => {
         event.preventDefault();
         const data = new FormData(event.currentTarget);
@@ -396,7 +438,17 @@
         finally { feedback.disabled = false; }
       });
       refreshShareList();
+      refreshViewLinkStatus();
     });
+  }
+
+  async function refreshViewLinkStatus() {
+    const target = document.getElementById('org-view-link-status');
+    if (!target) return;
+    try {
+      const result = await callSharingFunction({ action: 'view-link-status' });
+      target.textContent = result.active ? 'Viewer link is active.' : 'No active viewer link.';
+    } catch (error) { target.textContent = error.message; }
   }
 
   function downloadLocalSnapshot() {
@@ -409,6 +461,40 @@
     URL.revokeObjectURL(url);
   }
 
+  async function activateViewerLink(token) {
+    const { data, error } = await client.functions.invoke('manage-sharing', { body: { action: 'read-link', token } });
+    if (error || !data?.state) {
+      viewerLinkActive = false;
+      sessionStorage.removeItem('org-chart-view-token');
+      showGate('Viewer link unavailable', data?.error || error?.message || 'This viewer link is invalid or has been revoked.');
+      return;
+    }
+    viewerLinkActive = true;
+    sessionStorage.setItem('org-chart-view-token', token);
+    currentUser = null;
+    currentRole = 'link-viewer';
+    window.orgAuthRole = 'viewer';
+    history.replaceState(null, '', `${location.pathname}${location.search}`);
+    applySharedState(data.state);
+    setRoleControls();
+    if (viewerPollTimer) clearInterval(viewerPollTimer);
+    viewerPollTimer = setInterval(async () => {
+      if (!viewerLinkActive) return;
+      const result = await client.functions.invoke('manage-sharing', { body: { action: 'read-link', token } });
+      if (result.error || !result.data?.state) {
+        viewerLinkActive = false;
+        sessionStorage.removeItem('org-chart-view-token');
+        clearInterval(viewerPollTimer);
+        clearLocalDirectory();
+        currentRole = null;
+        window.orgAuthRole = null;
+        showGate('Viewer link revoked', 'This shared viewing link is no longer active. Ask an administrator for a new link.');
+        return;
+      }
+      applySharedState(result.data.state);
+    }, 60000);
+  }
+
   async function start() {
     const config = window.ORG_CHART_CONFIG || {};
     if (!config.url || !config.anonKey || !window.supabase?.createClient) {
@@ -419,12 +505,33 @@
     client = window.supabase.createClient(config.url, config.anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
+    const urlViewerToken = new URLSearchParams(window.location.hash.slice(1)).get('view');
+    const viewerToken = urlViewerToken || sessionStorage.getItem('org-chart-view-token');
+    viewerLinkActive = Boolean(viewerToken);
     client.auth.onAuthStateChange((_event, session) => {
-      setTimeout(() => queueSessionActivation(session), 0);
+      setTimeout(() => {
+        if (viewerLinkActive && !session) return;
+        if (session && viewerLinkActive) {
+          viewerLinkActive = false;
+          sessionStorage.removeItem('org-chart-view-token');
+        }
+        queueSessionActivation(session);
+      }, 0);
     });
     const { data: { session }, error } = await client.auth.getSession();
     if (error) throw error;
-    await queueSessionActivation(session);
+    if (session) {
+      if (viewerLinkActive) {
+        viewerLinkActive = false;
+        sessionStorage.removeItem('org-chart-view-token');
+        history.replaceState(null, '', `${location.pathname}${location.search}`);
+      }
+      await queueSessionActivation(session);
+    } else if (viewerToken) {
+      await activateViewerLink(viewerToken);
+    } else {
+      await queueSessionActivation(null);
+    }
   }
 
   start().catch((error) => showGate('Could not connect', error.message || 'The secure directory service could not be reached.'));

@@ -13,6 +13,16 @@ function respond(status: number, body: Record<string, unknown>) {
   });
 }
 
+async function hashViewerToken(token: string) {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function generateViewerToken() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return respond(405, { error: 'POST required.' });
@@ -21,9 +31,30 @@ Deno.serve(async (request) => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const appOrigin = Deno.env.get('APP_ORIGIN');
-  const allowedEmailDomain = Deno.env.get('ALLOWED_EMAIL_DOMAIN')?.trim().toLowerCase();
   if (!url || !anonKey || !serviceKey || !appOrigin) {
     return respond(500, { error: 'Server configuration is incomplete.' });
+  }
+
+  let payload: { action?: string; email?: string; newEmail?: string; role?: string; token?: string };
+  try {
+    payload = await request.json();
+  } catch {
+    return respond(400, { error: 'Invalid request body.' });
+  }
+
+  const service = createClient(url, serviceKey, { auth: { persistSession: false } });
+
+  if (payload.action === 'read-link') {
+    const requestOrigin = request.headers.get('Origin');
+    if (requestOrigin && requestOrigin !== new URL(appOrigin).origin) return respond(403, { error: 'Viewer links are only accepted from the org chart website.' });
+    const viewerToken = String(payload.token || '');
+    if (viewerToken.length < 40 || viewerToken.length > 100) return respond(401, { error: 'This viewing link is invalid or has been revoked.' });
+    const tokenHash = await hashViewerToken(viewerToken);
+    const { data: activeLink, error: linkError } = await service.from('org_view_links').select('active,token_hash').eq('id', 1).maybeSingle();
+    if (linkError || !activeLink?.active || activeLink.token_hash !== tokenHash) return respond(401, { error: 'This viewing link is invalid or has been revoked.' });
+    const { data: stateRow, error: stateError } = await service.from('org_state').select('state').eq('id', 1).single();
+    if (stateError) return respond(500, { error: 'The shared directory could not be loaded.' });
+    return respond(200, { state: stateRow.state });
   }
 
   const authorization = request.headers.get('Authorization');
@@ -33,20 +64,12 @@ Deno.serve(async (request) => {
   const { data: authData, error: authError } = await authClient.auth.getUser(token);
   if (authError || !authData.user) return respond(401, { error: 'Your sign-in has expired.' });
 
-  const service = createClient(url, serviceKey, { auth: { persistSession: false } });
   const { data: caller, error: callerError } = await service
     .from('org_members')
     .select('role')
     .eq('user_id', authData.user.id)
     .maybeSingle();
   if (callerError || caller?.role !== 'admin') return respond(403, { error: 'Only an administrator can manage sharing.' });
-
-  let payload: { action?: string; email?: string; role?: string };
-  try {
-    payload = await request.json();
-  } catch {
-    return respond(400, { error: 'Invalid request body.' });
-  }
 
   if (payload.action === 'list') {
     const { data, error } = await service
@@ -56,18 +79,41 @@ Deno.serve(async (request) => {
     return error ? respond(500, { error: 'Could not load shared access.' }) : respond(200, { members: data });
   }
 
+  if (payload.action === 'create-view-link') {
+    const token = generateViewerToken();
+    const tokenHash = await hashViewerToken(token);
+    const { error } = await service.from('org_view_links').upsert({
+      id: 1,
+      token_hash: tokenHash,
+      active: true,
+      created_at: new Date().toISOString(),
+      created_by: authData.user.id,
+    }, { onConflict: 'id' });
+    if (error) return respond(500, { error: 'Could not create the viewer link.' });
+    const shareUrl = new URL(appOrigin);
+    shareUrl.hash = `view=${token}`;
+    return respond(200, { url: shareUrl.toString() });
+  }
+
+  if (payload.action === 'revoke-view-link') {
+    const { error } = await service.from('org_view_links').update({ active: false }).eq('id', 1);
+    return error ? respond(500, { error: 'Could not revoke the viewer link.' }) : respond(200, { message: 'Viewer link revoked.' });
+  }
+
+  if (payload.action === 'view-link-status') {
+    const { data, error } = await service.from('org_view_links').select('active,created_at').eq('id', 1).maybeSingle();
+    return error ? respond(500, { error: 'Could not check viewer-link status.' }) : respond(200, { active: Boolean(data?.active), createdAt: data?.created_at || null });
+  }
+
   const email = String(payload.email || '').trim().toLowerCase();
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return respond(400, { error: 'Enter a valid email address.' });
   if (payload.action === 'invite') {
-    if (allowedEmailDomain && !email.endsWith(`@${allowedEmailDomain}`)) {
-      return respond(403, { error: `Only ${allowedEmailDomain} email addresses can be shared into this directory.` });
-    }
     const role = payload.role === 'admin' ? 'admin' : 'viewer';
     if (role === 'admin') {
       const { count, error } = await service.from('org_members').select('*', { count: 'exact', head: true }).eq('role', 'admin');
       if (error) return respond(500, { error: 'Could not verify administrator capacity.' });
       const { data: existing } = await service.from('org_members').select('role').eq('email', email).maybeSingle();
-      if (existing?.role !== 'admin' && (count || 0) >= 2) return respond(409, { error: 'The two administrator positions are already filled.' });
+      if (existing?.role !== 'admin' && (count || 0) >= 10) return respond(409, { error: 'The ten administrator positions are already filled.' });
     }
 
     let invitedUser: { id: string; email?: string | null } | null = null;
@@ -97,10 +143,41 @@ Deno.serve(async (request) => {
       invited_by: authData.user.id,
     }, { onConflict: 'user_id' });
     if (memberError) {
-      if (memberError.message.includes('maximum of two')) return respond(409, { error: 'The two administrator positions are already filled.' });
+      if (memberError.message.includes('maximum of ten')) return respond(409, { error: 'The ten administrator positions are already filled.' });
       return respond(500, { error: 'The invitation could not be assigned directory access.' });
     }
     return respond(200, { message: 'Access granted.', role, invitationSent: !inviteError });
+  }
+
+  if (payload.action === 'update-member') {
+    const newEmail = String(payload.newEmail || '').trim().toLowerCase();
+    if (!newEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newEmail)) return respond(400, { error: 'Enter a valid replacement email address.' });
+    const { data: target, error: targetError } = await service.from('org_members').select('user_id,email,role').eq('email', email).maybeSingle();
+    if (targetError || !target) return respond(404, { error: 'That person is not on the access list.' });
+    const role = payload.role === 'admin' ? 'admin' : 'viewer';
+    if (target.role !== 'admin' && role === 'admin') {
+      const { count, error } = await service.from('org_members').select('*', { count: 'exact', head: true }).eq('role', 'admin');
+      if (error) return respond(500, { error: 'Could not verify administrator capacity.' });
+      if ((count || 0) >= 10) return respond(409, { error: 'The ten administrator positions are already filled.' });
+    }
+    if (target.role === 'admin' && role !== 'admin') {
+      const { count, error } = await service.from('org_members').select('*', { count: 'exact', head: true }).eq('role', 'admin');
+      if (error || (count || 0) <= 1) return respond(409, { error: 'At least one administrator must remain.' });
+    }
+    const { data: duplicate, error: duplicateError } = await service.from('org_members').select('user_id').eq('email', newEmail).maybeSingle();
+    if (duplicateError) return respond(500, { error: 'Could not validate the replacement email.' });
+    if (duplicate && duplicate.user_id !== target.user_id) return respond(409, { error: 'That email already has directory access.' });
+    if (newEmail !== target.email.toLowerCase()) {
+      const { error: authUpdateError } = await service.auth.admin.updateUserById(target.user_id, { email: newEmail, email_confirm: true });
+      if (authUpdateError) return respond(400, { error: `Could not update the Supabase account email: ${authUpdateError.message}` });
+    }
+    const { error: memberUpdateError } = await service.from('org_members').update({ email: newEmail, role }).eq('user_id', target.user_id);
+    if (memberUpdateError) {
+      if (newEmail !== target.email.toLowerCase()) await service.auth.admin.updateUserById(target.user_id, { email: target.email, email_confirm: true });
+      if (memberUpdateError.message.includes('maximum of ten')) return respond(409, { error: 'The ten administrator positions are already filled.' });
+      return respond(500, { error: 'The account email changed but the access record did not. The previous email was restored where possible.' });
+    }
+    return respond(200, { message: 'Email and access role updated.' });
   }
 
   if (payload.action === 'set-role') {
@@ -112,7 +189,7 @@ Deno.serve(async (request) => {
       if (error || (count || 0) <= 1) return respond(409, { error: 'At least one administrator must remain.' });
     }
     const { error } = await service.from('org_members').update({ role }).eq('user_id', target.user_id);
-    if (error) return respond(error.message.includes('maximum of two') ? 409 : 500, { error: error.message });
+    if (error) return respond(error.message.includes('maximum of ten') ? 409 : 500, { error: error.message });
     return respond(200, { message: 'Access role updated.' });
   }
 
