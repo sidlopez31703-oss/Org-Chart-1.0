@@ -77,7 +77,7 @@
       options: { shouldCreateUser: false, emailRedirectTo: window.location.href },
     });
     feedback.textContent = error
-      ? 'Could not send a sign-in link. Confirm this email was shared with you and try again.'
+      ? `Supabase could not send the sign-in link: ${error.message}`
       : 'If this email has been invited, a secure sign-in link is on its way.';
   }
 
