@@ -1,0 +1,4 @@
+project_id = "org-chart-directory"
+
+[functions.manage-sharing]
+verify_jwt = true
