@@ -6,6 +6,8 @@
   let saveTimer;
   let realtimeChannel = null;
   let lastServerState = null;
+  let lastActivatedSessionKey = null;
+  let activationQueue = Promise.resolve();
   let suppressStorageSync = false;
   const dataKeys = new Set([
     'org-chart-people',
@@ -53,6 +55,17 @@
   function showLogin(message = 'This directory is shared by invitation. Sign in with the email address that was invited.') {
     showGate('Sign in to continue', message, `<form id="org-login-form"><label>Invited email address<input name="email" type="email" autocomplete="email" required></label><label>Optional one-time migration file<input name="migrationFile" type="file" accept="application/json"><small>Use only if you exported your existing local directory.</small></label><button type="submit">Email me a sign-in link</button></form>`);
     document.getElementById('org-login-form').addEventListener('submit', sendSignInLink);
+  }
+
+  function queueSessionActivation(session) {
+    const sessionKey = session?.access_token || 'signed-out';
+    if (sessionKey === lastActivatedSessionKey) return activationQueue;
+    lastActivatedSessionKey = sessionKey;
+    activationQueue = activationQueue.then(() => activateSession(session)).catch((error) => {
+      lastActivatedSessionKey = null;
+      showLogin(`Could not complete sign-in: ${error.message || 'Unknown authentication error.'}`);
+    });
+    return activationQueue;
   }
 
   async function sendSignInLink(event) {
@@ -406,9 +419,12 @@
     client = window.supabase.createClient(config.url, config.anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
-    const { data: { session } } = await client.auth.getSession();
-    await activateSession(session);
-    client.auth.onAuthStateChange((_event, session) => { setTimeout(() => activateSession(session), 0); });
+    client.auth.onAuthStateChange((_event, session) => {
+      setTimeout(() => queueSessionActivation(session), 0);
+    });
+    const { data: { session }, error } = await client.auth.getSession();
+    if (error) throw error;
+    await queueSessionActivation(session);
   }
 
   start().catch((error) => showGate('Could not connect', error.message || 'The secure directory service could not be reached.'));
