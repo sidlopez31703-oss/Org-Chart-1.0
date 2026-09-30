@@ -1,0 +1,11 @@
+# Supabase CLI local project metadata
+supabase/.temp/
+
+# Local environment secrets
+.env
+.env.*
+!.env.example
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
