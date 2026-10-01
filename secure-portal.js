@@ -15,6 +15,7 @@
   const dataKeys = new Set([
     'org-chart-people',
     'org-chart-departments',
+    'org-chart-groups',
     'org-chart-department-levels',
     'org-chart-levels',
     'org-chart-category-keys',
@@ -115,6 +116,7 @@
     };
     return {
       departments: read('org-chart-departments', window.depts),
+      groups: read('org-chart-groups', window.orgGroups || []),
       people: read('org-chart-people', window.people),
       departmentLevels: read('org-chart-department-levels', window.departmentLevels || {}),
       levelLabels: read('org-chart-levels', window.levelLabels || []),
@@ -126,6 +128,7 @@
   function clearLocalDirectory() {
     window.people = [];
     window.depts.splice(0, window.depts.length);
+    window.orgGroups = [];
     window.departmentLevels = {};
     window.levelLabels = [];
     window.categoryKeys = [];
@@ -135,6 +138,7 @@
   function writeLocalState(state) {
     suppressStorageSync = true;
     originalSetItem('org-chart-departments', JSON.stringify(state.departments));
+    originalSetItem('org-chart-groups', JSON.stringify(state.groups || []));
     originalSetItem('org-chart-people', JSON.stringify(state.people));
     originalSetItem('org-chart-department-levels', JSON.stringify(state.departmentLevels));
     originalSetItem('org-chart-levels', JSON.stringify(state.levelLabels));
@@ -148,6 +152,7 @@
       throw new Error('The shared directory has not been initialized by an administrator yet.');
     }
     window.depts.splice(0, window.depts.length, ...state.departments);
+    window.orgGroups = state.groups || [];
     window.people = state.people;
     window.departmentLevels = state.departmentLevels || {};
     window.levelLabels = state.levelLabels || [];
@@ -155,6 +160,7 @@
     window.siteSettings = state.siteSettings || window.siteSettings;
     writeLocalState({
       departments: window.depts,
+      groups: window.orgGroups,
       people: window.people,
       departmentLevels: window.departmentLevels,
       levelLabels: window.levelLabels,
@@ -168,6 +174,7 @@
   function collectState() {
     return {
       departments: window.depts,
+      groups: window.orgGroups || [],
       people: window.people,
       departmentLevels: window.departmentLevels || {},
       levelLabels: window.levelLabels || [],

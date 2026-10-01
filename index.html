@@ -131,6 +131,7 @@ const levelColorMap = { red: '#c94b4b', navy: '#003b5c', blue: '#0072a8', green:
 const levelColorNames = { red: 'Red', navy: 'Navy', blue: 'Blue', green: 'Green', gold: 'Gold', purple: 'Purple', orange: 'Orange', gray: 'Gray' };
 const storedDepartmentLevels = JSON.parse(localStorage.getItem('org-chart-department-levels') || 'null');
 let departmentLevels = storedDepartmentLevels || {};
+let orgGroups = JSON.parse(localStorage.getItem('org-chart-groups') || '[]');
 function defaultDepartmentLevels(name) { return [{ name: 'Executive', color: 'red' }, { name: 'Director', color: 'navy' }, { name: 'Manager', color: 'blue' }, { name: 'Team member', color: 'green' }]; }
 function levelsFor(name) { if (!departmentLevels[name]) departmentLevels[name] = defaultDepartmentLevels(name); return departmentLevels[name]; }
 depts.forEach((department) => levelsFor(department[0]));
@@ -360,6 +361,7 @@ Object.defineProperties(window, {
 	depts: { configurable: true, get: () => depts },
 	people: { configurable: true, get: () => people, set: (value) => { people = value; } },
 	departmentLevels: { configurable: true, get: () => departmentLevels, set: (value) => { departmentLevels = value; } },
+	orgGroups: { configurable: true, get: () => orgGroups, set: (value) => { orgGroups = value; } },
 	levelLabels: { configurable: true, get: () => levelLabels, set: (value) => { levelLabels = value; } },
 	categoryKeys: { configurable: true, get: () => categoryKeys, set: (value) => { categoryKeys = value; } },
 	siteSettings: { configurable: true, get: () => siteSettings, set: (value) => { siteSettings = value; } },
@@ -377,5 +379,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./secure-portal.js')));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-chart-extensions.js', () => loadSecurityScript('./secure-portal.js'))));
 </script></body></html>

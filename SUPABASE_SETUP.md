@@ -11,6 +11,7 @@ The directory supports a revocable viewer link, authenticated admin accounts, sh
 - The database trigger and server function enforce a maximum of ten admins. Admins may also invite named accounts, edit their email/role, and revoke their directory access.
 - There is no shared admin code. Admin identity is tied to the authenticated email account; replacing an admin means changing roles in Share access.
 - Saves are sent to the shared database, so other invited users see the same directory. Open sessions receive updates through Supabase Realtime, and the site shows save status in the top toolbar.
+- Position records include vacancy status and department section labels, so both remain in the shared directory and print tree.
 - Signing out clears the browser's cached directory data. Revoking membership also clears the directory from that session.
 
 ## 1. Create a Supabase project

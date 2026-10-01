@@ -2,6 +2,8 @@
 
 A standalone, responsive org-chart directory with department-specific responsibility categories, connected reporting lines, print layouts, and admin editing controls.
 
+Position administration supports filled and vacant roles. Vacant positions keep their full title and hierarchy/PID without requiring employee contact details. Department managers can add section labels (for example, “Inspection Area 5”) and place positions or nested labels underneath them.
+
 ## Secure shared mode
 
 The website is closed until configured with Supabase. Supabase provides email-authenticated admins, shared persistence, realtime refresh, row-level security, a revocable bearer viewer link, and a server-side maximum of ten admins.
