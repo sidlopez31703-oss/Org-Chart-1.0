@@ -193,5 +193,3 @@ function deleteManagedPosition(id) {
   showPositionAdmin();
 }
 
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./secure-portal.js')));
-*** End Patch
