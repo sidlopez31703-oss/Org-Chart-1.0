@@ -220,7 +220,10 @@
   }
 
   function setRoleControls() {
+    document.getElementById(gateId)?.remove();
     document.body.classList.remove('org-security-locked');
+    document.documentElement.style.visibility = 'visible';
+    document.body.style.visibility = 'visible';
     document.querySelector('.org-session-toolbar')?.remove();
     const toolbar = document.createElement('div');
     toolbar.className = 'org-session-toolbar';
