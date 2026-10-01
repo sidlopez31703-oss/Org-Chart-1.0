@@ -92,6 +92,7 @@ This version is static and does not require Node.js to serve the page. The Supab
 - The old `0000` passcode is removed. It was visible to anyone who could inspect the HTML and was not suitable for security.
 - The website link itself is not secret. Authentication plus database row-level security enforce sharing.
 - The bearer viewer link is an unlisted capability, not individual identity verification: anyone who receives or is forwarded the link can view until an admin revokes/rotates it. The base URL alone grants no access.
+- After a viewer opens the link once, this browser profile remembers the viewer token so reopening the base site is quick. Use **Exit shared view** on shared/public computers; admins can revoke or rotate the link at any time.
 - Removing a named account revokes its directory membership immediately; it does not delete the person's Supabase Auth identity.
 - Current photo uploads are stored inside the shared JSON record. Use reasonably sized images. A production deployment with many/high-resolution employee photos should move them to private Supabase Storage with signed URLs and follow county retention/access policies.
 - GitHub Pages is public hosting even when application data is protected. Have Clark County IT approve this architecture before storing personnel contact information.

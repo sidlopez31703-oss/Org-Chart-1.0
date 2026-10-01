@@ -235,7 +235,7 @@
     document.getElementById('org-sign-out').addEventListener('click', async () => {
       clearLocalDirectory();
       if (currentRole === 'link-viewer') {
-        sessionStorage.removeItem('org-chart-view-token');
+        localStorage.removeItem('org-chart-view-token');
         viewerLinkActive = false;
         if (viewerPollTimer) clearInterval(viewerPollTimer);
         showLogin();
@@ -469,12 +469,12 @@
     const { data, error } = await client.functions.invoke('manage-sharing', { body: { action: 'read-link', token } });
     if (error || !data?.state) {
       viewerLinkActive = false;
-      sessionStorage.removeItem('org-chart-view-token');
+      localStorage.removeItem('org-chart-view-token');
       showGate('Viewer link unavailable', data?.error || error?.message || 'This viewer link is invalid or has been revoked.');
       return;
     }
     viewerLinkActive = true;
-    sessionStorage.setItem('org-chart-view-token', token);
+    localStorage.setItem('org-chart-view-token', token);
     currentUser = null;
     currentRole = 'link-viewer';
     window.orgAuthRole = 'viewer';
@@ -487,7 +487,7 @@
       const result = await client.functions.invoke('manage-sharing', { body: { action: 'read-link', token } });
       if (result.error || !result.data?.state) {
         viewerLinkActive = false;
-        sessionStorage.removeItem('org-chart-view-token');
+        localStorage.removeItem('org-chart-view-token');
         clearInterval(viewerPollTimer);
         clearLocalDirectory();
         currentRole = null;
@@ -511,14 +511,14 @@
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
     const urlViewerToken = new URLSearchParams(window.location.hash.slice(1)).get('view');
-    const viewerToken = urlViewerToken || sessionStorage.getItem('org-chart-view-token');
+    const viewerToken = urlViewerToken || localStorage.getItem('org-chart-view-token');
     viewerLinkActive = Boolean(viewerToken);
     client.auth.onAuthStateChange((_event, session) => {
       setTimeout(() => {
         if (viewerLinkActive && !session) return;
         if (session && viewerLinkActive) {
           viewerLinkActive = false;
-          sessionStorage.removeItem('org-chart-view-token');
+          localStorage.removeItem('org-chart-view-token');
         }
         queueSessionActivation(session);
       }, 0);
@@ -528,7 +528,7 @@
     if (session) {
       if (viewerLinkActive) {
         viewerLinkActive = false;
-        sessionStorage.removeItem('org-chart-view-token');
+        localStorage.removeItem('org-chart-view-token');
         history.replaceState(null, '', `${location.pathname}${location.search}`);
       }
       await queueSessionActivation(session);
