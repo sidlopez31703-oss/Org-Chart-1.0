@@ -1,6 +1,7 @@
 (() => {
   const gateId = 'org-security-gate';
   let client;
+  let authRedirectUrl = '';
   let currentUser = null;
   let currentRole = null;
   let saveTimer;
@@ -90,7 +91,7 @@
     }
     const { error } = await client.auth.signInWithOtp({
       email,
-      options: { shouldCreateUser: false, emailRedirectTo: window.location.href },
+      options: { shouldCreateUser: false, emailRedirectTo: authRedirectUrl },
     });
     feedback.textContent = error
       ? `Supabase could not send the sign-in link: ${error.message}`
@@ -502,6 +503,7 @@
       document.getElementById('org-export-local').addEventListener('click', downloadLocalSnapshot);
       return;
     }
+    authRedirectUrl = config.redirectUrl || `${window.location.origin}${window.location.pathname}`;
     client = window.supabase.createClient(config.url, config.anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });

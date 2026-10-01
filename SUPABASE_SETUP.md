@@ -23,6 +23,7 @@ The directory supports a revocable viewer link, authenticated admin accounts, sh
 window.ORG_CHART_CONFIG = {
   url: 'https://YOUR_PROJECT_REF.supabase.co',
   anonKey: 'YOUR_PUBLIC_ANON_KEY',
+  redirectUrl: 'https://YOUR_ACCOUNT.github.io/YOUR_REPOSITORY/',
 };
 ```
 
