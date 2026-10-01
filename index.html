@@ -379,5 +379,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-chart-extensions.js', () => loadSecurityScript('./secure-portal.js'))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-chart-extensions.js?v=20261001-vacant-labels', () => loadSecurityScript('./secure-portal.js'))));
 </script></body></html>
