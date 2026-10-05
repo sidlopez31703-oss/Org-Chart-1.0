@@ -99,4 +99,8 @@ This version is static and does not require Node.js to serve the page. The Supab
 - The bearer viewer link is an unlisted capability, not individual identity verification: anyone who receives or is forwarded the link can view without expiration or rotation. The base URL alone grants no access.
 - After a viewer opens the link once, this browser profile remembers the viewer token so reopening the base site is quick. Use **Exit shared view** on shared/public computers; reopening the original link restores viewing access.
 - Removing a named account revokes its directory membership immediately; it does not delete the person's Supabase Auth identity.
-- Current photo uploads are stored inside the shared JSON record. Use reasonably sized images. A production deployment with many/high-resolution employee photos should move them to private Supabase Storage with signed URLs and follow county retention/access policies.
+- Photo uploads are resized proportionally and stored in the private `org-photos` bucket. Apply `supabase/photo-storage.sql`, deploy `manage-sharing`, and publish `org-photo-storage.js` before using the new uploader. Use Photo storage to back up and move existing embedded images. Back up bucket files separately from database records.
+
+## Photo storage upgrade
+
+Run `supabase/photo-storage.sql` in SQL Editor, deploy the updated `manage-sharing`, and publish `index.html`, `org-chart-extensions.js`, `secure-portal.js`, and `org-photo-storage.js`. After deployment, sign in as administrator and use Photo storage → Download directory backup → Move existing photos. The move retains records until every upload succeeds and rejects a save if another administrator changed the directory meanwhile. Keep the original backup.

@@ -13,3 +13,7 @@ See [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for setup and deployment. Configure t
 The old client-side admin passcode is removed. Admin access is assigned to authenticated accounts, not a shared code. Anyone holding the viewer link can view without link expiration or rotation; anyone with an admin account can edit.
 
 To generate a permanent viewer URL without an old link, apply `supabase/generate-permanent-view-link.sql` and deploy the updated `manage-sharing` function. The button displays the same saved URL with Copy link; it preserves older viewer access.
+
+## Private photos
+
+Apply `supabase/photo-storage.sql` before deploying the photo-storage version of `manage-sharing` and publishing `org-photo-storage.js`. New photo uploads are compressed proportionally and stored privately; employee records keep file references. Use the administrator Photo storage screen to download a backup and move existing embedded photos. Named members and valid permanent-link viewers receive temporary photo URLs. Back up bucket files separately from database records.

@@ -23,6 +23,18 @@ function generateViewerToken() {
   return btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
+async function signDirectoryPhotos(service: ReturnType<typeof createClient>, state: { people?: unknown[][]; departments?: unknown[][]; siteSettings?: { brandImage?: unknown } }) {
+  const values = [...(state.people || []).map(person => person[9]), ...(state.departments || []).map(department => department[2]), state.siteSettings?.brandImage];
+  const paths = [...new Set(values.filter((value): value is string => typeof value === 'string' && /^org-photo:photos\/[a-f0-9-]+\.(webp|jpg|png)$/.test(value)).map(value => value.slice('org-photo:'.length)))];
+  const signed: { path: string; signedUrl: string; error?: string | null }[] = [];
+  for (let index = 0; index < paths.length; index += 100) {
+    const { data, error } = await service.storage.from('org-photos').createSignedUrls(paths.slice(index, index + 100), 3600);
+    if (error) throw error;
+    signed.push(...(data || []));
+  }
+  return signed;
+}
+
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
   if (request.method !== 'POST') return respond(405, { error: 'POST required.' });
@@ -54,7 +66,12 @@ Deno.serve(async (request) => {
     if (linkError || !activeLink?.active || (activeLink.token_hash !== tokenHash && activeLink.generated_token_hash !== tokenHash)) return respond(401, { error: 'This viewing link is invalid.' });
     const { data: stateRow, error: stateError } = await service.from('org_state').select('state').eq('id', 1).single();
     if (stateError) return respond(500, { error: 'The shared directory could not be loaded.' });
-    return respond(200, { state: stateRow.state });
+    try {
+      const photoUrls = await signDirectoryPhotos(service, stateRow.state);
+      return respond(200, { state: stateRow.state, photoUrls });
+    } catch {
+      return respond(503, { error: 'Private photos could not be loaded. Check the photo storage setup and try again.' });
+    }
   }
 
   const authorization = request.headers.get('Authorization');

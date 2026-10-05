@@ -12,6 +12,8 @@
   let lastActivatedSessionKey = null;
   let activationQueue = Promise.resolve();
   let suppressStorageSync = false;
+  let photoMigrationActive = false;
+  let photoRefreshTimer;
   const dataKeys = new Set([
     'org-chart-people',
     'org-chart-departments',
@@ -71,6 +73,7 @@
   document.head.insertAdjacentHTML('beforeend', '<style>.share-member input{min-width:0;width:100%;padding:8px;border:1px solid #b9cbd4;background:#fff;color:#000}.link-tools{display:flex;gap:8px;flex-wrap:wrap}.link-result{display:flex;gap:8px;align-items:center;margin-top:10px}.link-result input{min-width:0;flex:1;padding:8px;border:1px solid #b9cbd4}.link-warning{font-size:11px;color:#52636b;margin-top:8px}</style>');
   window.orgAuthRole = null;
   window.requireAdmin = (callback) => {
+    if (photoMigrationActive) { alert('Please wait for the photo move to finish.'); return; }
     if (currentRole === 'admin') callback();
     else alert('This action is available to directory administrators only.');
   };
@@ -151,6 +154,8 @@
   }
 
   function clearLocalDirectory() {
+    window.OrgPhotos.clear();
+    clearInterval(photoRefreshTimer);
     window.people = [];
     window.depts.splice(0, window.depts.length);
     window.orgGroups = [];
@@ -223,6 +228,7 @@
   }
 
   function scheduleSave() {
+    if (photoMigrationActive) return;
     setSaveStatus('Saving shared changes…');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
@@ -244,11 +250,14 @@
   function watchSharedChanges() {
     if (realtimeChannel) client.removeChannel(realtimeChannel);
     realtimeChannel = client.channel('org-directory-state')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'org_state', filter: 'id=eq.1' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'org_state', filter: 'id=eq.1' }, async (payload) => {
         const incoming = payload.new?.state;
-        if (!incoming) return;
+        if (!incoming || photoMigrationActive) return;
         const localIsSaved = JSON.stringify(collectState()) === lastServerState;
         if (currentRole === 'viewer' || localIsSaved) {
+          try { await window.OrgPhotos.ensure(incoming); }
+          catch { setSaveStatus('A shared update arrived, but its photos could not load. Reload to retry.', true); return; }
+          if (photoMigrationActive) return;
           applySharedState(incoming);
           lastServerState = JSON.stringify(incoming);
         } else {
@@ -301,6 +310,15 @@
     shareButton.addEventListener('click', showSharingPanel);
     document.getElementById('org-share-access')?.remove();
     footerActions?.appendChild(shareButton);
+    const photosButton = document.createElement('button');
+    photosButton.type = 'button';
+    photosButton.className = 'secondary';
+    photosButton.id = 'org-manage-photos';
+    photosButton.textContent = 'Photo storage';
+    photosButton.hidden = currentRole !== 'admin';
+    photosButton.addEventListener('click', showPhotoStoragePanel);
+    document.getElementById('org-manage-photos')?.remove();
+    footerActions?.appendChild(photosButton);
     updateRoleSensitiveControls();
   }
 
@@ -358,6 +376,7 @@
       return;
     }
     try {
+      await window.OrgPhotos.ensure(shared);
       applySharedState(shared);
     } catch (loadError) {
       showLogin(loadError.message || 'Could not load the shared directory.');
@@ -366,6 +385,15 @@
     lastServerState = JSON.stringify(shared);
     watchSharedChanges();
     setRoleControls();
+    clearInterval(photoRefreshTimer);
+    photoRefreshTimer = setInterval(async () => {
+      if (!currentUser || photoMigrationActive) return;
+      try {
+        await window.OrgPhotos.ensure(collectState());
+        window.applySiteSettings?.();
+        window.render?.();
+      } catch { setSaveStatus('Photos could not refresh. Reload when your connection returns.', true); }
+    }, 30 * 60 * 1000);
   }
 
   function showInitialSetup() {
@@ -495,6 +523,70 @@
     } catch (error) { target.textContent = error.message; }
   }
 
+  function showPhotoStoragePanel() {
+    window.requireAdmin(() => {
+      const modal = document.getElementById('modal');
+      modal.innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" id="org-photo-close">×</button><h2>Photo storage</h2><p>New JPG, PNG, and WebP uploads are automatically resized without cropping and saved privately.</p><p>Move the existing embedded photos to private storage to make the directory faster. Download a backup first; it keeps your original embedded photos.</p><div class="admin-actions"><button type="button" class="secondary" id="org-photo-backup">Download directory backup</button><button type="button" class="primary" id="org-photo-migrate" disabled>Move existing photos</button></div><p id="org-photo-progress" role="status"></p><button type="button" class="cancel" id="org-photo-done">Close</button></section></div>`;
+      let backupState;
+      let revision;
+      const status = document.getElementById('org-photo-progress');
+      const migrateButton = document.getElementById('org-photo-migrate');
+      const backupButton = document.getElementById('org-photo-backup');
+      for (const id of ['org-photo-close', 'org-photo-done']) document.getElementById(id).onclick = () => { if (!photoMigrationActive) window.closeAdd(); };
+      backupButton.onclick = async () => {
+        backupButton.disabled = true;
+        try {
+          if (JSON.stringify(collectState()) !== lastServerState) throw new Error('Wait for all changes to save before downloading this backup.');
+          const { data, error } = await client.from('org_state').select('state,updated_at').eq('id', 1).single();
+          if (error || !data?.state) throw new Error('Could not download the directory. Try again.');
+          if (JSON.stringify(data.state) !== JSON.stringify(collectState())) throw new Error('The directory changed on another device. Reload before moving photos.');
+          backupState = data.state;
+          revision = data.updated_at;
+          const backupUrl = URL.createObjectURL(new Blob([JSON.stringify(backupState)], { type: 'application/json' }));
+          const anchor = document.createElement('a');
+          anchor.href = backupUrl;
+          anchor.download = `org-chart-original-photos-${new Date().toISOString().slice(0, 10)}.json`;
+          anchor.click();
+          setTimeout(() => URL.revokeObjectURL(backupUrl), 60000);
+          const count = window.OrgPhotos.slots(backupState).filter(slot => String(slot.owner[slot.key] || '').startsWith('data:image/')).length;
+          status.textContent = count ? `${count} embedded photos found. Keep the downloaded backup, then click Move existing photos.` : 'Your photos are already stored separately. No move is needed.';
+          migrateButton.disabled = !count;
+        } catch (error) { status.textContent = error.message; }
+        finally { backupButton.disabled = false; }
+      };
+      migrateButton.onclick = async () => {
+        if (!backupState || photoMigrationActive) return;
+        if (JSON.stringify(collectState()) !== lastServerState) { status.textContent = 'Wait for changes to save, then download a fresh backup.'; return; }
+        photoMigrationActive = true;
+        migrateButton.disabled = backupButton.disabled = true;
+        clearTimeout(saveTimer);
+        const preventLeave = event => { event.preventDefault(); event.returnValue = ''; };
+        window.addEventListener('beforeunload', preventLeave);
+        try {
+          const next = structuredClone(backupState);
+          await window.OrgPhotos.moveEmbedded(next, (done, total) => { status.textContent = `Moving photos: ${done} of ${total}. Keep this page open.`; });
+          // Compare-and-swap: never overwrite another administrator's newer work.
+          const { data, error } = await client.from('org_state').update({ state: next, updated_at: new Date().toISOString(), updated_by: currentUser.id }).eq('id', 1).eq('updated_at', revision).select('updated_at').single();
+          if (error || !data) throw new Error('The move was not saved. The directory may have changed on another device. Reload and download a fresh backup; your original records remain intact.');
+          await window.OrgPhotos.ensure(next);
+          applySharedState(next);
+          lastServerState = JSON.stringify(next);
+          const before = new Blob([JSON.stringify(backupState)]).size;
+          const after = new Blob([JSON.stringify(next)]).size;
+          status.textContent = `Photos moved successfully. Directory data: ${(before / 1048576).toFixed(1)} MB → ${(after / 1048576).toFixed(2)} MB. Keep your backup.`;
+          setSaveStatus('All changes saved for everyone.');
+          backupState = null;
+        } catch (error) { status.textContent = error.message; }
+        finally {
+          photoMigrationActive = false;
+          window.removeEventListener('beforeunload', preventLeave);
+          backupButton.disabled = false;
+          migrateButton.disabled = true;
+        }
+      };
+    });
+  }
+
   function downloadLocalSnapshot() {
     const blob = new Blob([JSON.stringify(readLocalState(), null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -517,6 +609,7 @@
     currentUser = null;
     currentRole = 'link-viewer';
     window.orgAuthRole = 'viewer';
+    await window.OrgPhotos.ensure(data.state, data.photoUrls || []);
     applySharedState(data.state);
     // Remembering a verified link is convenient, but storage failure must not
     // deny viewing. If it cannot be saved, keep the original URL token intact.
@@ -541,8 +634,9 @@
         showGate('Viewer link unavailable', 'The directory could not be loaded. Reopen your saved viewer link to try again.');
         return;
       }
+      await window.OrgPhotos.ensure(result.data.state, result.data.photoUrls || []);
       applySharedState(result.data.state);
-    }, 60000);
+    }, 5 * 60 * 1000);
   }
 
   async function start() {
@@ -556,6 +650,7 @@
     client = window.supabase.createClient(config.url, config.anonKey, {
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
+    window.OrgPhotos.configure(client, () => currentRole === 'admin');
     const urlViewerToken = new URLSearchParams(window.location.hash.slice(1)).get('view');
     const viewerToken = urlViewerToken || localStorage.getItem('org-chart-view-token');
     viewerLinkActive = Boolean(viewerToken);
