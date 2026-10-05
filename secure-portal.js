@@ -220,6 +220,23 @@
     };
   }
 
+  // PostgreSQL JSONB may return object keys in a different order.
+  // Compare data values consistently while preserving array/reporting order.
+  function stateFingerprint(state) {
+    const normalized = {
+      departments: state.departments || [], people: state.people || [],
+      groups: state.groups || [], departmentLevels: state.departmentLevels || {},
+      levelLabels: state.levelLabels || [], categoryKeys: state.categoryKeys || [],
+      siteSettings: state.siteSettings || {},
+    };
+    return JSON.stringify(normalized, (_key, value) => {
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return Object.fromEntries(Object.keys(value).sort().map(key => [key, value[key]]));
+      }
+      return value;
+    });
+  }
+
   function setSaveStatus(message, isError = false) {
     const status = document.getElementById('org-save-status');
     if (!status) return;
@@ -232,7 +249,7 @@
     setSaveStatus('Saving shared changes…');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
-      const state = collectState();
+      const state = structuredClone(collectState());
       const { error } = await client.from('org_state').update({
         state,
         updated_at: new Date().toISOString(),
@@ -241,7 +258,7 @@
       if (error) {
         setSaveStatus('Could not save shared changes. Check your connection.', true);
       } else {
-        lastServerState = JSON.stringify(state);
+        lastServerState = stateFingerprint(state);
         setSaveStatus('All changes saved for everyone.');
       }
     }, 450);
@@ -253,13 +270,13 @@
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'org_state', filter: 'id=eq.1' }, async (payload) => {
         const incoming = payload.new?.state;
         if (!incoming || photoMigrationActive) return;
-        const localIsSaved = JSON.stringify(collectState()) === lastServerState;
+        const localIsSaved = stateFingerprint(collectState()) === lastServerState;
         if (currentRole === 'viewer' || localIsSaved) {
           try { await window.OrgPhotos.ensure(incoming); }
           catch { setSaveStatus('A shared update arrived, but its photos could not load. Reload to retry.', true); return; }
           if (photoMigrationActive) return;
           applySharedState(incoming);
-          lastServerState = JSON.stringify(incoming);
+          lastServerState = stateFingerprint(collectState());
         } else {
           setSaveStatus('A shared update arrived. Save your changes, then reload to see it.');
         }
@@ -382,7 +399,7 @@
       showLogin(loadError.message || 'Could not load the shared directory.');
       return;
     }
-    lastServerState = JSON.stringify(shared);
+    lastServerState = stateFingerprint(collectState());
     watchSharedChanges();
     setRoleControls();
     clearInterval(photoRefreshTimer);
@@ -430,7 +447,7 @@
     }
     localStorage.removeItem('org-chart-pending-import');
     applySharedState(state);
-    lastServerState = JSON.stringify(state);
+    lastServerState = stateFingerprint(state);
     watchSharedChanges();
     setRoleControls();
   }
@@ -536,10 +553,10 @@
       backupButton.onclick = async () => {
         backupButton.disabled = true;
         try {
-          if (JSON.stringify(collectState()) !== lastServerState) throw new Error('Wait for all changes to save before downloading this backup.');
+          if (stateFingerprint(collectState()) !== lastServerState) throw new Error('Wait for all changes to save before downloading this backup.');
           const { data, error } = await client.from('org_state').select('state,updated_at').eq('id', 1).single();
           if (error || !data?.state) throw new Error('Could not download the directory. Try again.');
-          if (JSON.stringify(data.state) !== JSON.stringify(collectState())) throw new Error('The directory changed on another device. Reload before moving photos.');
+          if (stateFingerprint(data.state) !== stateFingerprint(collectState())) throw new Error('The directory changed on another device. Reload before moving photos.');
           backupState = data.state;
           revision = data.updated_at;
           const backupUrl = URL.createObjectURL(new Blob([JSON.stringify(backupState)], { type: 'application/json' }));
@@ -556,10 +573,12 @@
       };
       migrateButton.onclick = async () => {
         if (!backupState || photoMigrationActive) return;
-        if (JSON.stringify(collectState()) !== lastServerState) { status.textContent = 'Wait for changes to save, then download a fresh backup.'; return; }
+        if (stateFingerprint(collectState()) !== lastServerState) { status.textContent = 'Wait for changes to save, then download a fresh backup.'; return; }
         photoMigrationActive = true;
         migrateButton.disabled = backupButton.disabled = true;
         clearTimeout(saveTimer);
+        status.textContent = 'Preparing photos to move. Keep this page open.';
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
         const preventLeave = event => { event.preventDefault(); event.returnValue = ''; };
         window.addEventListener('beforeunload', preventLeave);
         try {
@@ -570,7 +589,7 @@
           if (error || !data) throw new Error('The move was not saved. The directory may have changed on another device. Reload and download a fresh backup; your original records remain intact.');
           await window.OrgPhotos.ensure(next);
           applySharedState(next);
-          lastServerState = JSON.stringify(next);
+          lastServerState = stateFingerprint(collectState());
           const before = new Blob([JSON.stringify(backupState)]).size;
           const after = new Blob([JSON.stringify(next)]).size;
           status.textContent = `Photos moved successfully. Directory data: ${(before / 1048576).toFixed(1)} MB → ${(after / 1048576).toFixed(2)} MB. Keep your backup.`;
