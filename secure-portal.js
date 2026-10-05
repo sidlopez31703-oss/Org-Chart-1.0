@@ -409,31 +409,48 @@
     }
   }
 
+  function showPermanentViewerLink(result) {
+    const target = document.getElementById('org-view-link-result');
+    if (result.needsExistingLink) {
+      target.innerHTML = `<form id="org-save-existing-link"><p>Keep the link you already emailed: paste it once below. It will become the permanent link.</p><label>Existing viewer link<input id="org-existing-view-link" type="url" required placeholder="Paste the full viewer link"></label><button type="submit" class="secondary">Save existing link</button><p id="org-existing-link-feedback" role="status"></p></form>`;
+      document.getElementById('org-save-existing-link').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const button = event.currentTarget.querySelector('button');
+        button.disabled = true;
+        try {
+          const url = new URL(document.getElementById('org-existing-view-link').value.trim());
+          const token = new URLSearchParams(url.hash.slice(1)).get('view');
+          if (!token) throw new Error('Paste the complete viewer link, including #view= at the end.');
+          showPermanentViewerLink(await callSharingFunction({ action: 'create-view-link', token }));
+        } catch (error) {
+          document.getElementById('org-existing-link-feedback').textContent = error.message;
+          button.disabled = false;
+        }
+      });
+      document.getElementById('org-view-link-status').textContent = 'Your existing link remains valid. Save it once to enable copying it here.';
+      return;
+    }
+    target.innerHTML = `<div class="link-result"><input id="org-view-link-url" aria-label="Permanent viewer link" readonly value="${escapeHtml(result.url)}"><button type="button" class="secondary" id="org-copy-view-link">Copy link</button></div><p class="link-warning">This same link has no expiration. You can email it or copy it again anytime. Anyone holding it can view and print.</p>`;
+    document.getElementById('org-copy-view-link').addEventListener('click', async () => {
+      const input = document.getElementById('org-view-link-url');
+      try { await navigator.clipboard.writeText(input.value); }
+      catch { input.focus(); input.select(); document.execCommand('copy'); }
+      alert('Permanent viewer link copied.');
+    });
+    document.getElementById('org-view-link-status').textContent = 'Permanent viewer link active. Getting or copying it never changes it.';
+  }
+
   function showSharingPanel() {
     window.requireAdmin(() => {
-      document.getElementById('modal').innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Access control</span><h2>Share the directory</h2><p>Anyone with the private viewer link can view. Link holders can forward it, so revoke or rotate it if it is exposed. Signed-in administrators can edit. Up to ten admins are allowed.</p><div class="admin-section"><h3>Viewer link</h3><p id="org-view-link-status">Checking link status…</p><div class="link-tools"><button type="button" class="primary" id="org-create-view-link">Create / rotate viewer link</button><button type="button" class="secondary" id="org-revoke-view-link">Revoke viewer link</button></div><div id="org-view-link-result"></div></div><form id="org-invite-form" class="admin-section"><h3>Named access</h3><p>Optional email-based accounts can be assigned Viewer or Administrator access.</p><div class="admin-grid"><label class="admin-wide">Email address<input name="email" type="email" required placeholder="person@example.com"></label><label>Access level<select name="role"><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Invite by email</button></div></form><div class="admin-section"><h3>Named accounts</h3><p>Change an account email or role, or revoke that account’s access. Revoking access does not delete their Supabase identity.</p><div id="org-share-members" class="share-list"></div></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button></div></section></div>`;
+      document.getElementById('modal').innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Access control</span><h2>Share the directory</h2><p>Anyone with the private viewer link can view. Link holders can forward it, and the same link stays valid without expiration. Signed-in administrators can edit. Up to ten admins are allowed.</p><div class="admin-section"><h3>Viewer link</h3><p id="org-view-link-status">Checking link status…</p><div class="link-tools"><button type="button" class="primary" id="org-create-view-link">Get permanent viewer link</button></div><div id="org-view-link-result"></div></div><form id="org-invite-form" class="admin-section"><h3>Named access</h3><p>Optional email-based accounts can be assigned Viewer or Administrator access.</p><div class="admin-grid"><label class="admin-wide">Email address<input name="email" type="email" required placeholder="person@example.com"></label><label>Access level<select name="role"><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Invite by email</button></div></form><div class="admin-section"><h3>Named accounts</h3><p>Change an account email or role, or revoke that account’s access. Revoking access does not delete their Supabase identity.</p><div id="org-share-members" class="share-list"></div></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button></div></section></div>`;
       document.getElementById('org-create-view-link').addEventListener('click', async () => {
         const button = document.getElementById('org-create-view-link');
         button.disabled = true;
         try {
           const result = await callSharingFunction({ action: 'create-view-link' });
-          document.getElementById('org-view-link-result').innerHTML = `<div class="link-result"><input id="org-view-link-url" aria-label="Viewer link" readonly value="${escapeHtml(result.url)}"><button type="button" class="secondary" id="org-copy-view-link">Copy link</button></div><p class="link-warning">Anyone who receives this link can view the directory. Rotate or revoke it if it is exposed.</p>`;
-          document.getElementById('org-copy-view-link').addEventListener('click', async () => {
-            const input = document.getElementById('org-view-link-url');
-            try { await navigator.clipboard.writeText(input.value); alert('Viewer link copied. Anyone with it can view the directory.'); }
-            catch { input.focus(); input.select(); document.execCommand('copy'); alert('Viewer link copied. Anyone with it can view the directory.'); }
-          });
-          document.getElementById('org-view-link-status').textContent = 'Viewer link active. Creating a new one invalidates the previous link.';
+          showPermanentViewerLink(result);
         } catch (error) { alert(error.message); }
         finally { button.disabled = false; }
-      });
-      document.getElementById('org-revoke-view-link').addEventListener('click', async () => {
-        if (!confirm('Revoke the current viewer link? Anyone using it will lose access.')) return;
-        try {
-          await callSharingFunction({ action: 'revoke-view-link' });
-          document.getElementById('org-view-link-status').textContent = 'Viewer link revoked.';
-          document.getElementById('org-view-link-result').replaceChildren();
-        } catch (error) { alert(error.message); }
       });
       document.getElementById('org-invite-form').addEventListener('submit', async (event) => {
         event.preventDefault();
@@ -458,7 +475,7 @@
     if (!target) return;
     try {
       const result = await callSharingFunction({ action: 'view-link-status' });
-      target.textContent = result.active ? 'Viewer link is active.' : 'No active viewer link.';
+      target.textContent = result.active ? 'Permanent viewer link is active.' : 'Get a permanent viewer link to share the directory.';
     } catch (error) { target.textContent = error.message; }
   }
 
@@ -477,7 +494,7 @@
     if (error || !data?.state) {
       viewerLinkActive = false;
       localStorage.removeItem('org-chart-view-token');
-      showGate('Viewer link unavailable', data?.error || error?.message || 'This viewer link is invalid or has been revoked.');
+      showGate('Viewer link unavailable', data?.error || error?.message || 'This viewer link is invalid or the directory is temporarily unavailable.');
       return;
     }
     viewerLinkActive = true;
@@ -499,7 +516,7 @@
         clearLocalDirectory();
         currentRole = null;
         window.orgAuthRole = null;
-        showGate('Viewer link revoked', 'This shared viewing link is no longer active. Ask an administrator for a new link.');
+        showGate('Viewer link unavailable', 'The directory could not be loaded. Reopen your saved viewer link to try again.');
         return;
       }
       applySharedState(result.data.state);

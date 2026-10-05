@@ -48,10 +48,10 @@ Deno.serve(async (request) => {
     const requestOrigin = request.headers.get('Origin');
     if (requestOrigin && requestOrigin !== new URL(appOrigin).origin) return respond(403, { error: 'Viewer links are only accepted from the org chart website.' });
     const viewerToken = String(payload.token || '');
-    if (viewerToken.length < 40 || viewerToken.length > 100) return respond(401, { error: 'This viewing link is invalid or has been revoked.' });
+    if (viewerToken.length < 40 || viewerToken.length > 100) return respond(401, { error: 'This viewing link is invalid.' });
     const tokenHash = await hashViewerToken(viewerToken);
     const { data: activeLink, error: linkError } = await service.from('org_view_links').select('active,token_hash').eq('id', 1).maybeSingle();
-    if (linkError || !activeLink?.active || activeLink.token_hash !== tokenHash) return respond(401, { error: 'This viewing link is invalid or has been revoked.' });
+    if (linkError || !activeLink?.active || activeLink.token_hash !== tokenHash) return respond(401, { error: 'This viewing link is invalid.' });
     const { data: stateRow, error: stateError } = await service.from('org_state').select('state').eq('id', 1).single();
     if (stateError) return respond(500, { error: 'The shared directory could not be loaded.' });
     return respond(200, { state: stateRow.state });
@@ -80,24 +80,53 @@ Deno.serve(async (request) => {
   }
 
   if (payload.action === 'create-view-link') {
-    const token = generateViewerToken();
-    const tokenHash = await hashViewerToken(token);
-    const { error } = await service.from('org_view_links').upsert({
-      id: 1,
-      token_hash: tokenHash,
-      active: true,
-      created_at: new Date().toISOString(),
-      created_by: authData.user.id,
-    }, { onConflict: 'id' });
-    if (error) return respond(500, { error: 'Could not create the viewer link.' });
+    // Idempotent: an existing token is NEVER replaced, even by old clients.
+    const readLink = () => service.from('org_view_links')
+      .select('active,token_hash,token_value').eq('id', 1).maybeSingle();
+    let { data: link, error } = await readLink();
+    if (error) return respond(500, { error: 'Could not load the permanent viewer link. Apply permanent-view-link.sql before deploying this function.' });
+    if (!link) {
+      const value = generateViewerToken();
+      const { error: insertError } = await service.from('org_view_links').insert({
+        id: 1,
+        token_hash: await hashViewerToken(value),
+        token_value: value,
+        active: true,
+        created_at: new Date().toISOString(),
+        created_by: authData.user.id,
+      });
+      // Concurrent administrators may both see an empty table. The primary key
+      // chooses one winner; the loser reads that SAME token instead of rotating.
+      if (insertError && insertError.code !== '23505') return respond(500, { error: 'Could not create the permanent viewer link.' });
+      ({ data: link, error } = await readLink());
+      if (error || !link) return respond(500, { error: 'Could not load the permanent viewer link.' });
+    }
+    if (!link.token_value) {
+      // Legacy rows have only a one-way hash. Adopt the current emailed link
+      // once so it can be copied again, without invalidating any recipients.
+      const existingToken = String(payload.token || '');
+      if (!existingToken) return respond(200, { needsExistingLink: true, message: 'Paste your current viewer link once to keep that same link permanently.' });
+      if (existingToken.length < 40 || existingToken.length > 100 || await hashViewerToken(existingToken) !== link.token_hash) {
+        return respond(400, { error: 'That is not the current viewer link. Paste the full link most recently shared from this directory.' });
+      }
+      const { error: saveError } = await service.from('org_view_links')
+        .update({ token_value: existingToken, active: true })
+        .eq('id', 1).eq('token_hash', link.token_hash).is('token_value', null);
+      if (saveError) return respond(500, { error: 'Could not save your existing viewer link.' });
+      ({ data: link, error } = await readLink());
+      if (error || !link?.token_value) return respond(500, { error: 'Could not load the saved viewer link.' });
+    }
+    if (!link.active) {
+      const { error: activateError } = await service.from('org_view_links').update({ active: true }).eq('id', 1);
+      if (activateError) return respond(500, { error: 'Could not enable the permanent viewer link.' });
+    }
     const shareUrl = new URL(appOrigin);
-    shareUrl.hash = `view=${token}`;
+    shareUrl.hash = `view=${link.token_value}`;
     return respond(200, { url: shareUrl.toString() });
   }
 
   if (payload.action === 'revoke-view-link') {
-    const { error } = await service.from('org_view_links').update({ active: false }).eq('id', 1);
-    return error ? respond(500, { error: 'Could not revoke the viewer link.' }) : respond(200, { message: 'Viewer link revoked.' });
+    return respond(409, { error: 'The viewer link is permanent and cannot be revoked or replaced.' });
   }
 
   if (payload.action === 'view-link-status') {

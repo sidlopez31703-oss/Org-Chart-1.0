@@ -1,11 +1,11 @@
 # Secure shared org chart setup
 
-The directory supports a revocable viewer link, authenticated admin accounts, shared database saves, and a server-enforced maximum of ten administrators. It stays locked until Supabase is configured. Do not publish actual employee information until Clark County IT approves the hosting and data handling.
+The directory supports a permanent viewer link, authenticated admin accounts, shared database saves, and a server-enforced maximum of ten administrators. It stays locked until Supabase is configured. Do not publish actual employee information until Clark County IT approves the hosting and data handling.
 
 ## What access means
 
 - Knowing or typing the base website URL only shows a sign-in screen. Crawlers are asked not to index it, but noindex is not the security mechanism.
-- Admins create a long, random viewer link in **Sharing & admins**. Anyone holding that link can view without an email account. Forwarding it forwards access too; admins can revoke or rotate it.
+- Admins create a long, random viewer link in **Sharing & admins**. Anyone holding that link can view without an email account. Forwarding it forwards access too; the link has no expiration and is not replaced when copied again.
 - Only authenticated admin accounts can edit directory data or manage links and accounts. Admin sign-in is by invited email and one-time link.
 - Supabase row-level security protects the database. Only authenticated admins can write it. The anonymous Edge Function read path returns data only when presented a valid, active viewer-link token.
 - The database trigger and server function enforce a maximum of ten admins. Admins may also invite named accounts, edit their email/role, and revoke their directory access.
@@ -42,7 +42,7 @@ The schema deliberately starts with an empty shared-state row. Browser storage i
 ## 3. Configure invite-only email sign-in
 
 1. In Supabase **Authentication → Providers → Email**, enable email sign-in and configure an approved email provider. The built-in sender has low rate limits.
-2. Disable public sign-ups. Admins are created/invited through Supabase and subsequently managed in the website. Viewers use the revocable link and do not need accounts.
+2. Disable public sign-ups. Admins are created/invited through Supabase and subsequently managed in the website. Viewers use the permanent link and do not need accounts.
 3. In **Authentication → URL Configuration**, set the Site URL to the deployed website and add its exact URL to the allowed redirect URLs. For GitHub Pages it looks like `https://YOUR_ACCOUNT.github.io/YOUR_REPOSITORY/`.
 4. Test the admin sign-in link before sharing employee data.
 
@@ -61,6 +61,10 @@ supabase functions deploy manage-sharing
 
 There is no email-domain restriction. Admins should only add trusted email accounts. The viewer link is the default way to share read-only access.
 
+## Existing deployment: permanent viewer links
+
+Run `supabase/permanent-view-link.sql` in Supabase SQL Editor, then deploy the updated `manage-sharing` Edge Function, then publish the website changes. The migration preserves the current token hash and re-enables that link if it was previously revoked. Previously rotated-out tokens cannot be recovered. The full token is saved only in the protected server table so admins can retrieve the same URL; it is never exposed by the anonymous read action. Existing projects must paste their current full viewer link once in Sharing & admins to enable copying it again.
+
 ## 5. Bootstrap the first administrator
 
 This is a one-time manual step so no public user can claim the first admin role:
@@ -77,14 +81,14 @@ on conflict (user_id) do update set role = 'admin', email = excluded.email;
 ```
 
 3. Open the deployed site, enter the first admin email, and request the sign-in link. Follow the email link in the same browser. If the shared database is empty, an admin-only initialization screen appears. Choose the migration JSON file and click **Import and initialize**, or click **Initialize current directory** to use the current browser data. Nothing is uploaded until an admin explicitly chooses one of these actions.
-4. Use **Sharing & admins** to create the viewer link. It is shown once so copy it and keep it private. Create/rotate invalidates the previous link; revoke disables it. Optional named accounts can also be invited by email, and the server rejects an eleventh admin.
+4. Use **Sharing & admins → Get permanent viewer link**. Copy and reuse the same link whenever you share. It has no expiration and cannot be rotated or revoked. When upgrading a previously shared link, paste your current full link once when prompted; its existing token is preserved. Optional named accounts can also be invited by email, and the server rejects an eleventh admin.
 
 ## 6. Publish the static site
 
 1. Commit `index.html`, `secure-portal.js`, `supabase-config.js`, the `supabase` folder, and this guide to the repository.
 2. Enable GitHub Pages for the repository and wait for deployment.
 3. Confirm the deployed URL is listed in Supabase's allowed redirect URLs and matches `APP_ORIGIN`.
-4. Test the base URL (should only show sign-in), a valid viewer link (read-only), a revoked/rotated old link (denied), and an admin account (can edit).
+4. Test the base URL (should only show sign-in), a valid viewer link (read-only), the same viewer link after getting/copying it again (still valid), and an admin account (can edit).
 
 This version is static and does not require Node.js to serve the page. The Supabase project and Edge Function are the backend services; the browser talks to them over HTTPS.
 
@@ -92,8 +96,8 @@ This version is static and does not require Node.js to serve the page. The Supab
 
 - The old `0000` passcode is removed. It was visible to anyone who could inspect the HTML and was not suitable for security.
 - The website link itself is not secret. Authentication plus database row-level security enforce sharing.
-- The bearer viewer link is an unlisted capability, not individual identity verification: anyone who receives or is forwarded the link can view until an admin revokes/rotates it. The base URL alone grants no access.
-- After a viewer opens the link once, this browser profile remembers the viewer token so reopening the base site is quick. Use **Exit shared view** on shared/public computers; admins can revoke or rotate the link at any time.
+- The bearer viewer link is an unlisted capability, not individual identity verification: anyone who receives or is forwarded the link can view without expiration or rotation. The base URL alone grants no access.
+- After a viewer opens the link once, this browser profile remembers the viewer token so reopening the base site is quick. Use **Exit shared view** on shared/public computers; reopening the original link restores viewing access.
 - Removing a named account revokes its directory membership immediately; it does not delete the person's Supabase Auth identity.
 - Current photo uploads are stored inside the shared JSON record. Use reasonably sized images. A production deployment with many/high-resolution employee photos should move them to private Supabase Storage with signed URLs and follow county retention/access policies.
 - GitHub Pages is public hosting even when application data is protected. Have Clark County IT approve this architecture before storing personnel contact information.

@@ -612,5 +612,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-chart-extensions.js?v=20261005-square-portraits', () => loadSecurityScript('./secure-portal.js'))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-chart-extensions.js?v=20261005-square-portraits', () => loadSecurityScript('./secure-portal.js?v=20261005-permanent-link'))));
 </script></body></html>
