@@ -100,4 +100,3 @@ This version is static and does not require Node.js to serve the page. The Supab
 - After a viewer opens the link once, this browser profile remembers the viewer token so reopening the base site is quick. Use **Exit shared view** on shared/public computers; reopening the original link restores viewing access.
 - Removing a named account revokes its directory membership immediately; it does not delete the person's Supabase Auth identity.
 - Current photo uploads are stored inside the shared JSON record. Use reasonably sized images. A production deployment with many/high-resolution employee photos should move them to private Supabase Storage with signed URLs and follow county retention/access policies.
-- GitHub Pages is public hosting even when application data is protected. Have Clark County IT approve this architecture before storing personnel contact information.
