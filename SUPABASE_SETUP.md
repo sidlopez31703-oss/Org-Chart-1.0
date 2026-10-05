@@ -63,7 +63,7 @@ There is no email-domain restriction. Admins should only add trusted email accou
 
 ## Existing deployment: permanent viewer links
 
-Run `supabase/permanent-view-link.sql` in Supabase SQL Editor, then deploy the updated `manage-sharing` Edge Function, then publish the website changes. The migration preserves the current token hash and re-enables that link if it was previously revoked. Previously rotated-out tokens cannot be recovered. The full token is saved only in the protected server table so admins can retrieve the same URL; it is never exposed by the anonymous read action. Existing projects must paste their current full viewer link once in Sharing & admins to enable copying it again.
+Run `supabase/permanent-view-link.sql` in Supabase SQL Editor, then deploy the updated `manage-sharing` Edge Function, then publish the website changes. The migration preserves the current token hash and re-enables that link if it was previously revoked. Previously rotated-out tokens cannot be recovered. The full token is saved only in the protected server table so admins can retrieve the same URL; it is never exposed by the anonymous read action. For an existing project, run `supabase/generate-permanent-view-link.sql` after the earlier migration and deploy the updated `manage-sharing` function. Get permanent viewer link automatically generates and saves a copyable URL, even when the old record has only a hash. Old viewer links remain valid. Do not rerun the earlier permanent-link migration afterward.
 
 ## 5. Bootstrap the first administrator
 

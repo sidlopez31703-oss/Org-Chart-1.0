@@ -11,3 +11,5 @@ The website is closed until configured with Supabase. Supabase provides email-au
 See [SUPABASE_SETUP.md](SUPABASE_SETUP.md) for setup and deployment. Configure the public Supabase URL and anon key in `supabase-config.js`; keep the service-role key on Supabase only. Apply `supabase/schema.sql` on a fresh project or `supabase/upgrade-sharing.sql` to an existing deployment, deploy `supabase/functions/manage-sharing`, bootstrap the first admin, and then publish the static site.
 
 The old client-side admin passcode is removed. Admin access is assigned to authenticated accounts, not a shared code. Anyone holding the viewer link can view without link expiration or rotation; anyone with an admin account can edit.
+
+To generate a permanent viewer URL without an old link, apply `supabase/generate-permanent-view-link.sql` and deploy the updated `manage-sharing` function. The button displays the same saved URL with Copy link; it preserves older viewer access.

@@ -50,8 +50,8 @@ Deno.serve(async (request) => {
     const viewerToken = String(payload.token || '');
     if (viewerToken.length < 40 || viewerToken.length > 100) return respond(401, { error: 'This viewing link is invalid.' });
     const tokenHash = await hashViewerToken(viewerToken);
-    const { data: activeLink, error: linkError } = await service.from('org_view_links').select('active,token_hash').eq('id', 1).maybeSingle();
-    if (linkError || !activeLink?.active || activeLink.token_hash !== tokenHash) return respond(401, { error: 'This viewing link is invalid.' });
+    const { data: activeLink, error: linkError } = await service.from('org_view_links').select('active,token_hash,generated_token_hash').eq('id', 1).maybeSingle();
+    if (linkError || !activeLink?.active || (activeLink.token_hash !== tokenHash && activeLink.generated_token_hash !== tokenHash)) return respond(401, { error: 'This viewing link is invalid.' });
     const { data: stateRow, error: stateError } = await service.from('org_state').select('state').eq('id', 1).single();
     if (stateError) return respond(500, { error: 'The shared directory could not be loaded.' });
     return respond(200, { state: stateRow.state });
@@ -82,9 +82,9 @@ Deno.serve(async (request) => {
   if (payload.action === 'create-view-link') {
     // Idempotent: an existing token is NEVER replaced, even by old clients.
     const readLink = () => service.from('org_view_links')
-      .select('active,token_hash,token_value').eq('id', 1).maybeSingle();
+      .select('active,token_hash,token_value,generated_token_hash').eq('id', 1).maybeSingle();
     let { data: link, error } = await readLink();
-    if (error) return respond(500, { error: 'Could not load the permanent viewer link. Apply permanent-view-link.sql before deploying this function.' });
+    if (error) return respond(500, { error: 'Could not load the permanent viewer link. Apply generate-permanent-view-link.sql before deploying this function.' });
     if (!link) {
       const value = generateViewerToken();
       const { error: insertError } = await service.from('org_view_links').insert({
@@ -102,17 +102,17 @@ Deno.serve(async (request) => {
       if (error || !link) return respond(500, { error: 'Could not load the permanent viewer link.' });
     }
     if (!link.token_value) {
-      // Legacy rows have only a one-way hash. Adopt the current emailed link
-      // once so it can be copied again, without invalidating any recipients.
+      // Keep the legacy hash valid, even if nobody retained its original URL.
+      // Save one copyable token once; concurrent requests read the same winner.
       const existingToken = String(payload.token || '');
-      if (!existingToken) return respond(200, { needsExistingLink: true, message: 'Paste your current viewer link once to keep that same link permanently.' });
-      if (existingToken.length < 40 || existingToken.length > 100 || await hashViewerToken(existingToken) !== link.token_hash) {
-        return respond(400, { error: 'That is not the current viewer link. Paste the full link most recently shared from this directory.' });
+      if (existingToken && (existingToken.length < 40 || existingToken.length > 100 || await hashViewerToken(existingToken) !== link.token_hash)) {
+        return respond(400, { error: 'That is not the current viewer link.' });
       }
+      const value = existingToken || generateViewerToken();
       const { error: saveError } = await service.from('org_view_links')
-        .update({ token_value: existingToken, active: true })
-        .eq('id', 1).eq('token_hash', link.token_hash).is('token_value', null);
-      if (saveError) return respond(500, { error: 'Could not save your existing viewer link.' });
+        .update({ token_value: value, generated_token_hash: existingToken ? null : await hashViewerToken(value), active: true })
+        .eq('id', 1).is('token_value', null);
+      if (saveError) return respond(500, { error: 'Could not save the permanent viewer link. Apply generate-permanent-view-link.sql first.' });
       ({ data: link, error } = await readLink());
       if (error || !link?.token_value) return respond(500, { error: 'Could not load the saved viewer link.' });
     }

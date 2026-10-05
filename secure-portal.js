@@ -443,24 +443,8 @@
 
   function showPermanentViewerLink(result) {
     const target = document.getElementById('org-view-link-result');
-    if (result.needsExistingLink) {
-      target.innerHTML = `<form id="org-save-existing-link"><p>Keep the link you already emailed: paste it once below. It will become the permanent link.</p><label>Existing viewer link<input id="org-existing-view-link" type="url" required placeholder="Paste the full viewer link"></label><button type="submit" class="secondary">Save existing link</button><p id="org-existing-link-feedback" role="status"></p></form>`;
-      document.getElementById('org-save-existing-link').addEventListener('submit', async (event) => {
-        event.preventDefault();
-        const button = event.currentTarget.querySelector('button');
-        button.disabled = true;
-        try {
-          const url = new URL(document.getElementById('org-existing-view-link').value.trim());
-          const token = new URLSearchParams(url.hash.slice(1)).get('view');
-          if (!token) throw new Error('Paste the complete viewer link, including #view= at the end.');
-          showPermanentViewerLink(await callSharingFunction({ action: 'create-view-link', token }));
-        } catch (error) {
-          document.getElementById('org-existing-link-feedback').textContent = error.message;
-          button.disabled = false;
-        }
-      });
-      document.getElementById('org-view-link-status').textContent = 'Your existing link remains valid. Save it once to enable copying it here.';
-      return;
+    if (!result.url) {
+      throw new Error('The sharing service needs the latest update. Apply generate-permanent-view-link.sql and deploy manage-sharing to generate your link.');
     }
     target.innerHTML = `<div class="link-result"><input id="org-view-link-url" aria-label="Permanent viewer link" readonly value="${escapeHtml(result.url)}"><button type="button" class="secondary" id="org-copy-view-link">Copy link</button></div><p class="link-warning">This same link has no expiration. You can email it or copy it again anytime. Anyone holding it can view and print.</p>`;
     document.getElementById('org-copy-view-link').addEventListener('click', async () => {
