@@ -22,7 +22,30 @@
     'org-chart-site-settings',
     'org-chart-pending-import',
   ]);
+  // Supabase is the saved source of shared data. Keep its potentially large
+  // photo-bearing records in memory, not localStorage's small string quota.
+  // The legacy editor still calls Storage methods; these wrappers preserve that
+  // interface while leaving authentication keys and sessionStorage untouched.
+  const directoryKeys = new Set([...dataKeys].filter(key => key !== 'org-chart-pending-import'));
+  const directoryCache = new Map();
   const originalSetItem = localStorage.setItem.bind(localStorage);
+  const originalGetItem = localStorage.getItem.bind(localStorage);
+  const originalRemoveItem = localStorage.removeItem.bind(localStorage);
+  for (const key of directoryKeys) {
+    const value = originalGetItem(key);
+    if (value !== null) directoryCache.set(key, value);
+  }
+
+  localStorage.getItem = function(key) {
+    key = String(key);
+    return directoryKeys.has(key) ? directoryCache.get(key) ?? null : originalGetItem(key);
+  };
+  localStorage.removeItem = function(key) {
+    key = String(key);
+    directoryCache.delete(key);
+    originalRemoveItem(key);
+  };
+
 
   function escapeHtml(value) {
     return String(value ?? '').replace(/[&<>"']/g, (character) => ({
@@ -53,7 +76,9 @@
   };
 
   localStorage.setItem = function(key, value) {
-    originalSetItem(key, value);
+    key = String(key);
+    if (directoryKeys.has(key)) directoryCache.set(key, String(value));
+    else originalSetItem(key, value);
     if (!suppressStorageSync && currentRole === 'admin' && dataKeys.has(key)) scheduleSave();
   };
 
@@ -137,14 +162,21 @@
 
   function writeLocalState(state) {
     suppressStorageSync = true;
-    originalSetItem('org-chart-departments', JSON.stringify(state.departments));
-    originalSetItem('org-chart-groups', JSON.stringify(state.groups || []));
-    originalSetItem('org-chart-people', JSON.stringify(state.people));
-    originalSetItem('org-chart-department-levels', JSON.stringify(state.departmentLevels));
-    originalSetItem('org-chart-levels', JSON.stringify(state.levelLabels));
-    originalSetItem('org-chart-category-keys', JSON.stringify(state.categoryKeys));
-    originalSetItem('org-chart-site-settings', JSON.stringify(state.siteSettings));
-    suppressStorageSync = false;
+    try {
+      localStorage.setItem('org-chart-departments', JSON.stringify(state.departments));
+      localStorage.setItem('org-chart-groups', JSON.stringify(state.groups || []));
+      localStorage.setItem('org-chart-people', JSON.stringify(state.people));
+      localStorage.setItem('org-chart-department-levels', JSON.stringify(state.departmentLevels));
+      localStorage.setItem('org-chart-levels', JSON.stringify(state.levelLabels));
+      localStorage.setItem('org-chart-category-keys', JSON.stringify(state.categoryKeys));
+      localStorage.setItem('org-chart-site-settings', JSON.stringify(state.siteSettings));
+      // Only after a validated shared state is loaded, discard stale disk copies
+      // to free space for auth/session tokens. The data above stays in memory
+      // and in Supabase; pending migration imports are preserved separately.
+      for (const key of directoryKeys) originalRemoveItem(key);
+    } finally {
+      suppressStorageSync = false;
+    }
   }
 
   function applySharedState(state) {
@@ -498,12 +530,18 @@
       return;
     }
     viewerLinkActive = true;
-    localStorage.setItem('org-chart-view-token', token);
     currentUser = null;
     currentRole = 'link-viewer';
     window.orgAuthRole = 'viewer';
-    history.replaceState(null, '', `${location.pathname}${location.search}`);
     applySharedState(data.state);
+    // Remembering a verified link is convenient, but storage failure must not
+    // deny viewing. If it cannot be saved, keep the original URL token intact.
+    try {
+      localStorage.setItem('org-chart-view-token', token);
+      history.replaceState(null, '', `${location.pathname}${location.search}`);
+    } catch (error) {
+      console.warn('Viewer link could not be remembered in this browser.', error.name);
+    }
     setRoleControls();
     if (viewerPollTimer) clearInterval(viewerPollTimer);
     viewerPollTimer = setInterval(async () => {
