@@ -246,21 +246,28 @@ function fitOrgChart() {
 	const tree = document.querySelector('#view .tree');
 	if (!tree) return;
 	const hint = tree.querySelector('.hint');
-	const viewport = document.createElement('div');
-	viewport.className = 'chart-fit-viewport';
-	const content = document.createElement('div');
-	content.className = 'chart-fit-content';
-	[...tree.children].forEach((child) => {
-		if (child !== hint) content.appendChild(child);
-	});
-	tree.replaceChildren();
-	if (hint) {
-		hint.classList.add('chart-fit-hint');
-		tree.appendChild(hint);
+	let viewport = tree.querySelector(':scope > .chart-fit-viewport');
+	let content = viewport?.querySelector(':scope > .chart-fit-content');
+	// Resize must refit the existing chart, not nest another scaled viewport.
+	if (!content) {
+		viewport = document.createElement('div');
+		viewport.className = 'chart-fit-viewport';
+		content = document.createElement('div');
+		content.className = 'chart-fit-content';
+		[...tree.children].forEach((child) => {
+			if (child !== hint) content.appendChild(child);
+		});
+		tree.replaceChildren();
+		if (hint) {
+			hint.classList.add('chart-fit-hint');
+			tree.appendChild(hint);
+		}
+		viewport.appendChild(content);
+		tree.appendChild(viewport);
 	}
-	viewport.appendChild(content);
-	tree.appendChild(viewport);
 	requestAnimationFrame(() => {
+		if (!content.isConnected) return;
+		content.style.transform = 'none';
 		const naturalWidth = Math.max(content.scrollWidth, content.getBoundingClientRect().width);
 		const naturalHeight = Math.max(content.scrollHeight, content.getBoundingClientRect().height);
 		const availableWidth = Math.max(1, viewport.clientWidth - 24);
@@ -279,236 +286,182 @@ render = function() {
 window.addEventListener('resize', fitOrgChart);
 document.head.insertAdjacentHTML('beforeend', `
 <style>
-.print-chart-button{
-    height:36px;
-    font-size:11px;
-    margin-left:8px;
-}
+.print-chart-button{height:36px;font-size:11px;margin-left:8px}
 
-.print-sheet{
+/* One geometry for measurement AND printing: 17 x 11 minus .25in margins.
+   The header and wrapped key take their natural height; the chart gets the rest. */
+#org-print-sheet{
     display:none;
-}
-
-/* Full printable area for 11 x 17 landscape */
-.print-layout{
-    width:100%;
-    display:grid;
-    grid-template-columns:1fr;
+    width:16.5in;
+    height:10.5in;
+    box-sizing:border-box;
+    grid-template-rows:auto minmax(0,1fr);
     gap:.08in;
+    margin:0;
+    padding:0;
+    overflow:hidden;
+    background:#fff;
+    color:#000;
+    font-family:Arial,Helvetica,sans-serif;
+    break-inside:avoid;
 }
-
-.print-chart{
-    position:relative;
-    width:100%;
-    height:9in;
+#org-print-sheet.print-measuring{
+    display:grid;
+    position:fixed;
+    left:-20000px;
+    top:0;
+    visibility:hidden;
+    pointer-events:none;
+}
+#org-print-sheet .print-layout{
+    display:grid;
+    grid-template-rows:minmax(0,1fr) auto;
+    gap:.08in;
     min-width:0;
+    min-height:0;
+}
+#org-print-sheet .print-chart{
+    position:relative;
+    min-width:0;
+    min-height:0;
     overflow:hidden;
     border:1px solid #b9cbd4;
-    padding:.08in;
 }
-
-.print-chart-stage{
+#org-print-sheet .print-chart-stage{position:absolute;inset:.08in}
+#org-print-sheet .print-chart-content{
     position:absolute;
-    inset:.08in;
+    left:50%;
+    top:50%;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    width:max-content;
+    max-width:none;
+    height:auto;
+    transform-origin:center center;
+    transform:translate(-50%,-50%) scale(var(--print-chart-scale,1));
+}
+#org-print-sheet .print-key{
     display:flex;
     align-items:center;
-    justify-content:center;
-    overflow:visible;
-}
-
-.print-chart-stage .chart-fit-content{
-    position:static !important;
-    left:auto !important;
-    top:auto !important;
-    width:max-content !important;
-    transform:none !important;
-    transform-origin:center center !important;
-}
-
-.print-key{
-    display:flex;
-    align-items:center;
-    justify-content:flex-start;
     flex-wrap:wrap;
     gap:0 .18in;
     border:1px solid #b9cbd4;
     padding:.06in .12in;
     background:#fff;
 }
-
-.print-key h2{
-    font-size:10pt;
-    margin:0 .18in 0 0;
-    text-transform:uppercase;
-}
-
-.print-key p{
-    display:none;
-}
-
-.print-key-row{
+#org-print-sheet .print-key h2{font-size:10pt;margin:0 .18in 0 0;text-transform:uppercase}
+#org-print-sheet .print-key-row{
     display:inline-flex;
     align-items:center;
     gap:5pt;
     padding:3pt 8pt 3pt 0;
-    border:0;
     font-size:8.5pt;
     white-space:nowrap;
 }
-
-.print-key-swatch{
-    width:10pt;
-    height:10pt;
-    border:1px solid #555;
-    flex:none;
-}
-
-.print-header{
+#org-print-sheet .print-key-swatch{width:10pt;height:10pt;border:1px solid #555;flex:none}
+#org-print-sheet .print-header{
     display:flex;
     align-items:center;
     gap:10pt;
     border-bottom:2px solid #003b5c;
     padding:0 0 6pt;
-    margin-bottom:6pt;
 }
+#org-print-sheet .print-header img{width:32pt;height:32pt;object-fit:contain}
+#org-print-sheet .print-header strong{display:block;color:#003b5c;font-size:15pt}
+#org-print-sheet .print-header span{display:block;margin-top:2pt;font-size:9pt;color:#222}
+#org-print-sheet .print-header,
+#org-print-sheet .print-key,
+#org-print-sheet .tree-branch{break-inside:avoid}
+#org-print-sheet .node{box-shadow:none}
 
-.print-header img{
-    width:32pt;
-    height:32pt;
-    object-fit:contain;
-}
-
-.print-header strong{
-    display:block;
-    color:#003b5c;
-    font-size:15pt;
-}
-
-.print-header span{
-    display:block;
-    margin-top:2pt;
-    font-size:9pt;
-    color:#222;
-}
-
-/* This size is used BEFORE the print dialog opens */
-.print-measuring{
-    display:block !important;
-    position:fixed !important;
-    left:-20000px !important;
-    top:0 !important;
-    width:16.5in !important;
-    height:10.5in !important;
-    visibility:hidden !important;
-    pointer-events:none !important;
-}
-
-@media print {
-
-    @page{
-        size:17in 11in;
-        margin:.25in;
+@page{size:17in 11in;margin:.25in}
+@media print{
+    html,body{margin:0!important;padding:0!important;background:#fff!important}
+    body > :not(#org-print-sheet){display:none!important}
+    #org-print-sheet.print-measuring{
+        display:grid;
+        position:relative;
+        left:auto;
+        top:auto;
+        visibility:visible;
     }
-
-    html,
-    body{
-        width:16.5in !important;
-        height:10.5in !important;
-        margin:0 !important;
-        padding:0 !important;
-    }
-
-    body > :not(#org-print-sheet){
-        display:none !important;
-    }
-
-    #org-print-sheet{
-        display:block !important;
-        position:static !important;
-        width:16.5in !important;
-        max-width:none !important;
-        height:10.5in !important;
-        margin:0 !important;
-        padding:0 !important;
-        visibility:visible !important;
-        color:#000 !important;
-        font-family:Arial,Helvetica,sans-serif !important;
-        overflow:hidden !important;
-    }
-
     #org-print-sheet *{
-        visibility:visible !important;
+        visibility:visible!important;
         print-color-adjust:exact;
         -webkit-print-color-adjust:exact;
-    }
-
-    .print-layout{
-        width:100% !important;
-        grid-template-columns:1fr !important;
-        gap:.08in !important;
-    }
-
-    .print-chart{
-        width:100% !important;
-        height:9in !important;
-    }
-
-    .print-chart-stage{
-        overflow:visible !important;
-    }
-
-    .print-chart-stage .chart-fit-content{
-        position:static !important;
-        left:auto !important;
-        top:auto !important;
-        transform:
-            scale(var(--print-chart-scale, 1)) !important;
-        transform-origin:center center !important;
-    }
-
-    .print-header,
-    .print-key{
-        break-inside:avoid;
-    }
-
-    .print-chart .tree-branch{
-        break-inside:avoid;
-    }
-
-    .print-chart .node{
-        box-shadow:none !important;
     }
 }
 </style>
 `);
-function printOrgChart() {
-	if (!dept) return;
-	const sourceTree = document.querySelector('#view .chart-fit-content');
-	if (!sourceTree) { alert('Open a department chart before printing.'); return; }
-	let sheet = document.getElementById('org-print-sheet');
-	if (!sheet) { sheet = document.createElement('section'); sheet.id = 'org-print-sheet'; sheet.className = 'print-sheet'; document.body.appendChild(sheet); }
-	const printTree = sourceTree.cloneNode(true);
-	printTree.style.transform = 'none';
-	const key = levelsFor(dept).map((level) => `<div class="print-key-row"><span class="print-key-swatch" style="background:${levelColorMap[level.color] || '#66727a'}"></span><strong>${esc(level.name)}</strong></div>`).join('');
-	const printDate = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'long', day: 'numeric' }).format(new Date());
-	sheet.innerHTML = `<header class="print-header"><img src="https://www.clarkcountynv.gov/favicon.ico" alt="Clark County logo"><div><strong>CLARK COUNTY</strong><span>${esc(dept)} | Organizational Chart | ${printDate}</span></div></header><div class="print-layout"><div class="print-chart"><div class="print-chart-stage"></div></div><aside class="print-key"><h2>Key</h2>${key}</aside></div>`;
-	sheet.querySelector('.print-chart-stage').appendChild(printTree);
-	sheet.classList.add('print-measuring');
-	const chartArea = sheet.querySelector('.print-chart');
-	const stage = sheet.querySelector('.print-chart-stage');
-	const availableWidth = Math.max(1, stage.clientWidth - 4);
-	const availableHeight = Math.max(1, stage.clientHeight - 4);
-	const naturalWidth = Math.max(printTree.scrollWidth, printTree.getBoundingClientRect().width);
-	const naturalHeight = Math.max(printTree.scrollHeight, printTree.getBoundingClientRect().height);
-	const scale = Math.min(
-    availableWidth / Math.max(1, naturalWidth),
-    availableHeight / Math.max(1, naturalHeight)
-);
-	chartArea.style.setProperty('--print-chart-scale', String(scale));
-	sheet.classList.remove('print-measuring');
-	window.setTimeout(() => window.print(), 80);
+
+function fitPrintChart(sheet) {
+    const stage = sheet.querySelector('.print-chart-stage');
+    const chart = sheet.querySelector('.print-chart-content');
+    // Measure in the same physical sheet used for printing, with NO transform.
+    // Absolute max-content sizing cannot shrink to the stage's width like flex items.
+    chart.style.transform = 'none';
+    const bounds = chart.getBoundingClientRect();
+    const naturalWidth = Math.max(chart.scrollWidth, bounds.width);
+    const naturalHeight = Math.max(chart.scrollHeight, bounds.height);
+    const availableWidth = stage.clientWidth;
+    const availableHeight = stage.clientHeight;
+    if (!(naturalWidth > 0 && naturalHeight > 0 && availableWidth > 0 && availableHeight > 0)) {
+        throw new Error('The chart or printable area has no measurable size.');
+    }
+    // No upper cap: small departments grow; wide or tall departments shrink.
+    const widthScale = availableWidth / naturalWidth;
+    const heightScale = availableHeight / naturalHeight;
+    sheet.style.setProperty('--print-chart-scale', String(Math.min(widthScale, heightScale)));
+    chart.style.removeProperty('transform');
 }
+
+const printLayoutFrame = () => new Promise(resolve => requestAnimationFrame(resolve));
+let preparingOrgPrint = false;
+async function printOrgChart() {
+    if (!dept || preparingOrgPrint) return;
+    const sourceTree = document.querySelector('#view .chart-fit-content');
+    if (!sourceTree) { alert('Open a department chart before printing.'); return; }
+    preparingOrgPrint = true;
+    const sheet = document.createElement('section');
+    try {
+        document.getElementById('org-print-sheet')?.remove();
+        sheet.id = 'org-print-sheet';
+        sheet.className = 'print-sheet print-measuring';
+        const printTree = sourceTree.cloneNode(true);
+        // Print owns its transform; screen fitting styles never apply to this clone.
+        printTree.className = 'print-chart-content';
+        printTree.style.removeProperty('transform');
+        const key = levelsFor(dept).map(level => `<div class="print-key-row"><span class="print-key-swatch" style="background:${levelColorMap[level.color] || '#66727a'}"></span><strong>${esc(level.name)}</strong></div>`).join('');
+        const printDate = new Intl.DateTimeFormat(undefined, {year:'numeric',month:'long',day:'numeric'}).format(new Date());
+        // Temporary deployment marker: remove " | PRINT DEBUG V5" after testing.
+        sheet.innerHTML = `<header class="print-header"><img src="https://www.clarkcountynv.gov/favicon.ico" alt="Clark County logo"><div><strong>CLARK COUNTY</strong><span>${esc(dept)} | Organizational Chart | ${esc(printDate)} | PRINT DEBUG V5</span></div></header><div class="print-layout"><div class="print-chart"><div class="print-chart-stage"></div></div><aside class="print-key"><h2>Key</h2>${key}</aside></div>`;
+        sheet.querySelector('.print-chart-stage').appendChild(printTree);
+        document.body.appendChild(sheet);
+        // Wait for fonts/images and actual layout, not an arbitrary timeout.
+        if (document.fonts) await document.fonts.ready;
+        await Promise.all([...sheet.querySelectorAll('img')].map(img => img.decode().catch(() => {})));
+        await printLayoutFrame();
+        if (!sheet.isConnected) return;
+        fitPrintChart(sheet);
+        await printLayoutFrame();
+        await printLayoutFrame();
+        if (sheet.isConnected) window.print();
+    } catch (error) {
+        sheet.remove();
+        console.error('Org chart printing failed:', error);
+        alert('Could not prepare this chart for printing. Please reopen the department and try again.');
+    } finally {
+        preparingOrgPrint = false;
+    }
+}
+// Recheck after the browser enters print media; dimensions remain identical.
+window.addEventListener('beforeprint', () => {
+    const sheet = document.getElementById('org-print-sheet');
+    if (sheet) fitPrintChart(sheet);
+});
 window.addEventListener('afterprint', () => document.getElementById('org-print-sheet')?.remove());
+
 const renderBeforePrintButton = render;
 render = function() {
 	renderBeforePrintButton();
@@ -517,7 +470,7 @@ render = function() {
 		const button = document.createElement('button');
 		button.type = 'button';
 		button.className = 'secondary print-chart-button';
-		button.textContent = 'Print chart';
+		button.textContent = 'Print chart V5'; // Temporary deployment marker; remove V5 after testing.
 		button.onclick = printOrgChart;
 		heading.appendChild(button);
 	}
