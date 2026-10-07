@@ -8,6 +8,13 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .org-connectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
 .org-connectors path{fill:none;stroke:#9eb1a7;stroke-width:1;stroke-linejoin:round}
 .org-connectors .connector-indirect{stroke-dasharray:4 4}
+.branch-order-controls{margin-top:18px;padding-top:14px;border-top:1px solid #d6ddd8}
+.branch-order-controls strong{font-size:12px;color:#003b5c}
+.branch-order-buttons{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.branch-order-buttons button{border:1px solid #b9cbd4;background:#fff;color:#003b5c;padding:7px 10px;font-size:11px;font-weight:700;cursor:pointer}
+.branch-order-buttons button:disabled{opacity:.45;cursor:default}
+.branch-order-controls small{display:block;margin-top:8px;font-size:10px;line-height:1.4;color:#52636b}
+.department-label-row .branch-order-buttons{margin-top:0}
 .indirect-line-swatch{display:inline-block;width:26px;height:0;flex:none;border-top:1px dashed #9eb1a7}
 #org-print-sheet .indirect-line-swatch{width:18pt}
 .node.node-top-level{background:linear-gradient(135deg,rgba(255,255,255,0),rgba(255,255,255,.35)),repeating-linear-gradient(135deg,#dfeaf0 0px,#dfeaf0 8px,#edf3f7 8px,#edf3f7 16px)}
@@ -196,7 +203,7 @@ showPositionAdmin = function() {
     const departmentPeople = people.filter((person) => person[3] === dept);
     const departmentGroups = orgGroups.filter((group) => group.department === dept);
     const parentOptions = orgParentOptions(dept);
-    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" onsubmit="addManagedPosition(event)"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(dept)} positions</span><h2>Manage positions</h2><p>Add filled or vacant positions and organize them under reporting lines or section labels.</p><div class="admin-section"><h3>Add position</h3><div class="admin-grid"><label>Position status<select name="status" onchange="toggleVacancyFields(this)"><option value="filled">Filled position</option><option value="vacant">Vacant position</option></select><small class="position-state-note">Enter the employee details for this filled position.</small></label><label>Person name<input name="name" required></label><label>Position ID<input name="pid" required onchange="reuseEmployeeForPid(this)"><small class="employee-reuse-note">The same employee PID can be used in different department charts.</small></label><label class="admin-wide">Full position title<input name="title" required placeholder="e.g. Deputy Director"></label><label class="admin-wide">Department<input name="department" value="${esc(dept)}" readonly></label><label>Responsibility category<select name="level">${positionLevelOptions(dept, '')}</select></label><label>Chart appearance<select name="leadership">${leadershipOptions()}</select></label><label class="admin-wide">Reports to<select name="reportsTo" onchange="syncReportingConnection(this.form)">${parentOptions}</select><small class="hierarchy-note">Choose a position or section label. This node will connect underneath it.</small></label>${connectionField()}${placementField()}<label class="vacancy-optional">Email<input name="email" type="email" required></label><label class="vacancy-optional">Mobile phone<input name="phone"></label><label class="vacancy-optional">Desk phone<input name="desk"></label><label class="admin-wide vacancy-optional">Photo URL<input name="photo" placeholder="https://... or choose a file"></label><label class="admin-wide vacancy-optional">Or choose a photo file<input name="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div></div><section class="admin-section"><h3>Department labels / sections</h3><p>Add a heading such as “Inspection Area 5”; positions and nested labels can report to it.</p><div id="org-label-form" class="admin-grid"><label>Section label<input name="labelName" placeholder="e.g. Inspection Area 5"></label><label>Reports to<select name="labelParent">${parentOptions}</select></label><button type="button" class="primary" onclick="addDepartmentLabel()">Add section label</button></div>${departmentGroups.map((group) => `<div class="department-label-row"><span><strong>${esc(group.name)}</strong><small>${group.reportsTo ? ' · Nested section' : ' · Top-level section'}</small></span><button type="button" class="delete-admin" onclick="removeDepartmentLabel('${esc(group.id)}')">Delete label</button></div>`).join('') || '<p>No department labels yet.</p>'}</section><div class="admin-section"><h3>Delete position</h3>${departmentPeople.map((person) => `<div class="position-delete-row"><span>${person[11] ? `${esc(person[2])} · Vacant` : esc(person[1])} <small>${esc(person[5])}</small></span><button type="button" class="delete-admin" onclick="deleteManagedPosition('${esc(person[0])}')">Delete</button></div>`).join('') || '<p>No positions in this department yet.</p>'}</div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button><button class="primary">Add position</button></div></form></div>`;
+    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" onsubmit="addManagedPosition(event)"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(dept)} positions</span><h2>Manage positions</h2><p>Add filled or vacant positions and organize them under reporting lines or section labels.</p><div class="admin-section"><h3>Add position</h3><div class="admin-grid"><label>Position status<select name="status" onchange="toggleVacancyFields(this)"><option value="filled">Filled position</option><option value="vacant">Vacant position</option></select><small class="position-state-note">Enter the employee details for this filled position.</small></label><label>Person name<input name="name" required></label><label>Position ID<input name="pid" required onchange="reuseEmployeeForPid(this)"><small class="employee-reuse-note">The same employee PID can be used in different department charts.</small></label><label class="admin-wide">Full position title<input name="title" required placeholder="e.g. Deputy Director"></label><label class="admin-wide">Department<input name="department" value="${esc(dept)}" readonly></label><label>Responsibility category<select name="level">${positionLevelOptions(dept, '')}</select></label><label>Chart appearance<select name="leadership">${leadershipOptions()}</select></label><label class="admin-wide">Reports to<select name="reportsTo" onchange="syncReportingConnection(this.form)">${parentOptions}</select><small class="hierarchy-note">Choose a position or section label. This node will connect underneath it.</small></label>${connectionField()}${placementField()}<label class="vacancy-optional">Email<input name="email" type="email" required></label><label class="vacancy-optional">Mobile phone<input name="phone"></label><label class="vacancy-optional">Desk phone<input name="desk"></label><label class="admin-wide vacancy-optional">Photo URL<input name="photo" placeholder="https://... or choose a file"></label><label class="admin-wide vacancy-optional">Or choose a photo file<input name="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div></div><section class="admin-section"><h3>Department labels / sections</h3><p>Add a heading such as “Inspection Area 5”; positions and nested labels can report to it.</p><div id="org-label-form" class="admin-grid"><label>Section label<input name="labelName" placeholder="e.g. Inspection Area 5"></label><label>Reports to<select name="labelParent">${parentOptions}</select></label><button type="button" class="primary" onclick="addDepartmentLabel()">Add section label</button></div>${departmentGroups.map((group) => `<div class="department-label-row"><span><strong>${esc(group.name)}</strong><small>${group.reportsTo ? ' · Nested section' : ' · Top-level section'}</small></span>${branchOrderButtons(group.id)}<button type="button" class="delete-admin" onclick="removeDepartmentLabel('${esc(group.id)}')">Delete label</button></div>`).join('') || '<p>No department labels yet.</p>'}</section><div class="admin-section"><h3>Delete position</h3>${departmentPeople.map((person) => `<div class="position-delete-row"><span>${person[11] ? `${esc(person[2])} · Vacant` : esc(person[1])} <small>${esc(person[5])}</small></span><button type="button" class="delete-admin" onclick="deleteManagedPosition('${esc(person[0])}')">Delete</button></div>`).join('') || '<p>No positions in this department yet.</p>'}</div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button><button class="primary">Add position</button></div></form></div>`;
   });
 };
 
@@ -234,8 +241,66 @@ function positionNodeMarkup(person) {
   return `<button class="node ${person[10] ? '' : 'node-top-level'} ${positionIsLeader(person) ? 'node-leader' : ''} ${vacant ? 'node-vacant' : ''}" data-position-id="${esc(person[0])}" style="border-left-color:${color}" onclick="selected=people.find(x=>x[0]==='${esc(person[0])}');render()">${vacant ? '<span class="vacant-avatar">V</span>' : `<img class="employee-photo" src="${esc(orgPhotoUrl(person[9]))}" alt="">`}<span class="node-copy"><strong>${esc(vacant ? person[2] : person[1])}</strong><span>${vacant ? 'Vacant' : esc(person[2])}</span><small>${esc(person[5])}</small></span></button>`;
 }
 
+function chartBranchOrder(entity) {
+  const value = entity.type === 'person' ? entity.person[15] : entity.group.chartOrder;
+  return typeof value === 'number' && Number.isFinite(value) ? value : Infinity;
+}
+
+function sortChartBranches(entities) {
+  // Stable fallback retains existing order; new positions append after ordered ones.
+  return [...entities].sort((a,b) => {
+    const left = chartBranchOrder(a), right = chartBranchOrder(b);
+    return left === right ? 0 : left < right ? -1 : 1;
+  });
+}
+
+function branchOrderPeers(id) {
+  if (!dept) return [];
+  const entities = [
+    ...people.filter(person => person[3] === dept || person[0] === 'ceo').map(person => ({id:person[0],parentId:person[10] || '',type:'person',person})),
+    ...orgGroups.filter(group => group.department === dept).map(group => ({id:group.id,parentId:group.reportsTo || '',type:'group',group})),
+  ];
+  const entity = entities.find(entry => entry.id === id);
+  if (!entity?.parentId || !entities.some(entry => entry.id === entity.parentId)) return [];
+  const indirect = entry => entry.type === 'person' && entry.person[13] === 'indirect';
+  return sortChartBranches(entities.filter(entry => entry.parentId === entity.parentId && indirect(entry) === indirect(entity)));
+}
+
+function branchOrderButtons(id) {
+  if (window.orgAuthRole !== 'admin') return '';
+  const peers = branchOrderPeers(id), index = peers.findIndex(entry => entry.id === id);
+  if (index < 0) return '';
+  return `<div class="branch-order-buttons"><button type="button" data-branch-move="left" ${index === 0 ? 'disabled' : ''} onclick="moveChartBranch('${esc(id)}', -1)">← Move left</button><button type="button" data-branch-move="right" ${index === peers.length - 1 ? 'disabled' : ''} onclick="moveChartBranch('${esc(id)}', 1)">Move right →</button></div>`;
+}
+
+function branchOrderControls(id) {
+  const buttons = branchOrderButtons(id);
+  return buttons ? `<div class="branch-order-controls"><strong>Branch order</strong>${buttons}<small>Moves this position and its reports within the same reporting group. Changes save automatically.</small></div>` : '';
+}
+
+function moveChartBranch(id, direction) {
+  requireAdmin(() => {
+    if (direction !== -1 && direction !== 1) return;
+    const peers = branchOrderPeers(id), index = peers.findIndex(entry => entry.id === id);
+    const next = index + direction;
+    if (index < 0 || next < 0 || next >= peers.length) return;
+    [peers[index],peers[next]] = [peers[next],peers[index]];
+    let groupsChanged = false;
+    peers.forEach((entity,order) => {
+      if (entity.type === 'person') entity.person[15] = order;
+      else { entity.group.chartOrder = order; groupsChanged = true; }
+    });
+    localStorage.setItem('org-chart-people',JSON.stringify(people));
+    if (groupsChanged) localStorage.setItem('org-chart-groups',JSON.stringify(orgGroups));
+    // Keep the contact card open; descendants follow their parent branch naturally.
+    render();
+    if (orgGroups.some(group => group.id === id)) showPositionAdmin();
+  });
+}
+
+
 function combinedTreeBranch(entity, allEntities, nested = false) {
-  const children = allEntities.filter((candidate) => candidate.parentId === entity.id);
+  const children = sortChartBranches(allEntities.filter((candidate) => candidate.parentId === entity.id));
   const indirect = children.filter(child => child.type === 'person' && child.person[13] === 'indirect');
   const direct = children.filter(child => !indirect.includes(child));
   const node = entity.type === 'group' ? `<div class="org-label-node">${esc(entity.name)}</div>` : positionNodeMarkup(entity.person);
@@ -303,11 +368,11 @@ orgTree = function(list) {
   const departmentGroups = orgGroups.filter((group) => group.department === dept);
   const entities = [
     ...list.map((person) => ({ id: person[0], parentId: person[10] || '', type: 'person', person })),
-    ...departmentGroups.map((group) => ({ id: group.id, parentId: group.reportsTo || '', type: 'group', name: group.name })),
+    ...departmentGroups.map((group) => ({ id: group.id, parentId: group.reportsTo || '', type: 'group', name: group.name, group })),
   ];
   const ids = new Set(entities.map((entity) => entity.id));
   const roots = entities.filter((entity) => !entity.parentId || !ids.has(entity.parentId));
-  return roots.map((root) => combinedTreeBranch(root, entities)).join('') || '<div class="empty">No positions found</div>';
+  return sortChartBranches(roots).map((root) => combinedTreeBranch(root, entities)).join('') || '<div class="empty">No positions found</div>';
 };
 
 nodes = function(list) { return list.map(positionNodeMarkup).join('') || '<div class="empty">No positions found</div>'; };
@@ -315,7 +380,7 @@ nodes = function(list) { return list.map(positionNodeMarkup).join('') || '<div c
 details = function(person) {
   const vacant = Boolean(person[11]);
   const contacts = vacant ? '' : `<div><span>Mobile</span><b>${esc(person[6] || 'Not listed')}</b></div><div><span>Desk phone</span><b>${esc(person[7] || 'Not listed')}</b></div><div><span>Email</span><b>${esc(person[8] || 'Not listed')}</b></div>`;
-  return `<aside class="panel"><button class="close" onclick="selected=null;render()">×</button>${person[9] ? `<img class="employee-photo" src="${esc(orgPhotoUrl(person[9]))}" alt="">` : ''}<h3>${esc(vacant ? person[2] : person[1])}</h3><p>${vacant ? '<span class="vacant-badge">Vacant</span><br>' : ''}<b>${esc(person[2])}</b><br>${esc(person[3])}</p><div class="details"><div><span>Position ID</span><b>${esc(person[5])}</b></div>${contacts}</div><div class="details-actions"><button class="text-button" onclick="showEditPosition('${esc(person[0])}')">Edit position</button><button class="delete" onclick="requireAdmin(() => { if (confirm('Delete this position?')) { deleteManagedPosition('${esc(person[0])}'); selected=null; render(); } })">Delete position</button></div></aside>`;
+  return `<aside class="panel"><button class="close" onclick="selected=null;render()">×</button>${person[9] ? `<img class="employee-photo" src="${esc(orgPhotoUrl(person[9]))}" alt="">` : ''}<h3>${esc(vacant ? person[2] : person[1])}</h3><p>${vacant ? '<span class="vacant-badge">Vacant</span><br>' : ''}<b>${esc(person[2])}</b><br>${esc(person[3])}</p><div class="details"><div><span>Position ID</span><b>${esc(person[5])}</b></div>${contacts}</div>${branchOrderControls(person[0])}<div class="details-actions"><button class="text-button" onclick="showEditPosition('${esc(person[0])}')">Edit position</button><button class="delete" onclick="requireAdmin(() => { if (confirm('Delete this position?')) { deleteManagedPosition('${esc(person[0])}'); selected=null; render(); } })">Delete position</button></div></aside>`;
 };
 
 function updateEditDepartmentWithGroups(select, id) {
@@ -355,6 +420,7 @@ saveEditedPosition = async function(event, id) {
   const parentExists = people.some((entry) => entry[0] === reportsTo && (entry[3] === department || entry[0] === 'ceo')) || orgGroups.some((group) => group.id === reportsTo && group.department === department);
   if (reportsTo && !parentExists) { alert('Choose a parent position or section from this department.'); return; }
   const photo = vacant ? '' : await readImageFile(form.querySelector('[name="photoFile"]'), String(data.get('photo') || form.dataset.reusedPhoto || person[9]));
+  if (person[3] !== department || (person[10] || '') !== reportsTo || (person[13] === 'indirect') !== (connectionValue(data, reportsTo) === 'indirect')) person[15] = null;
   person[1] = vacant ? 'Vacant' : String(data.get('name')).trim(); person[2] = String(data.get('title')).trim(); person[3] = department; person[4] = String(data.get('level')); person[5] = pid; person[6] = vacant ? '' : String(data.get('phone') || ''); person[7] = vacant ? '' : String(data.get('desk') || ''); person[8] = vacant ? '' : email; person[9] = photo; person[10] = reportsTo; person[11] = vacant; person[12] = leadershipValue(data); person[13] = connectionValue(data, reportsTo); person[14] = reportsTo ? placementLevel(data.get('placementLevel')) : 0;
   syncEmployeeDetails(person);
   localStorage.setItem('org-chart-people', JSON.stringify(people));

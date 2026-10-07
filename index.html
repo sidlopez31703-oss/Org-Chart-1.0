@@ -616,5 +616,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261005-private-photos', () => loadSecurityScript('./org-chart-extensions.js?v=20261007-separate-connectors', () => loadSecurityScript('./secure-portal.js?v=20261005-photo-save-check')))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261005-private-photos', () => loadSecurityScript('./org-chart-extensions.js?v=20261007-branch-order', () => loadSecurityScript('./secure-portal.js?v=20261005-photo-save-check')))));
 </script></body></html>
