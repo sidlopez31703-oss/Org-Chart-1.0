@@ -8,12 +8,10 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .tree-children>.tree-branch:last-child::before{right:50%}
 .tree-children>.tree-branch:only-child::before{display:none}
 .tree-children>.tree-branch::after{content:"";position:absolute;left:50%;top:-20px;width:0;height:20px;border-left:1px solid #9eb1a7}
-.node-top-level{background:linear-gradient(135deg,#dbeaf2 0%,#eef5f9 50%,#fff 100%);border-top:2px solid #003b5c}
+.node.node-top-level{background:linear-gradient(135deg,rgba(255,255,255,0),rgba(255,255,255,.35)),repeating-linear-gradient(135deg,#dfeaf0 0px,#dfeaf0 8px,#edf3f7 8px,#edf3f7 16px)}
 .node-leader::after{content:"";position:absolute;inset:5px;border:3px double #53616b;pointer-events:none}
 .leadership-swatch{position:relative;display:inline-block;width:26px;height:20px;flex:none;border:1px solid #aab5bc;background:#fff}
 .leadership-swatch::after{content:"";position:absolute;inset:3px;border:3px double #53616b}
-.top-level-swatch{background:linear-gradient(135deg,#dbeaf2 0%,#eef5f9 50%,#fff 100%);border-top:2px solid #003b5c}
-.top-level-swatch::after{display:none}
 .employee-reuse-note{display:block;font-size:11px;line-height:1.4;color:#52636b;margin-top:5px}
 #org-print-sheet .leadership-swatch{width:18pt;height:14pt}
 #org-print-sheet .leadership-swatch::after{inset:2pt;border-width:2.25pt}
@@ -79,8 +77,8 @@ function leadershipValue(formData) {
 
 function leadershipKeyMarkup(print = false) {
   return print
-    ? '<div class="print-key-row leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><strong>Leadership</strong></div><div class="print-key-row top-level-key"><span class="leadership-swatch top-level-swatch" aria-hidden="true"></span><strong>Top level (no supervisor)</strong></div>'
-    : '<div class="legend-item leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><span><strong>Leadership</strong><small>Double inset border; category color stays the same</small></span></div><div class="legend-item top-level-key"><span class="leadership-swatch top-level-swatch" aria-hidden="true"></span><span><strong>Top level</strong><small>No supervisor — shaded box</small></span></div>';
+    ? '<div class="print-key-row leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><strong>Leadership</strong></div>'
+    : '<div class="legend-item leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><span><strong>Leadership</strong><small>Double inset border; category color stays the same</small></span></div>';
 }
 
 document.head.insertAdjacentHTML('beforeend', '<style>.org-label-node{min-width:180px;padding:12px 20px;background:#e5f1f6;border:2px solid #0072a8;color:#003b5c;text-align:center;font-size:13px;font-weight:700;box-shadow:0 3px 10px #003b5c12}.node-vacant{border-style:dashed!important;background:#fffdf8}.node-vacant .vacant-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:0;background:#f2b544;color:#000;font-weight:700}.vacant-badge{display:inline-block;margin:8px 0;padding:4px 7px;background:#fff0c2;color:#000;font-size:10px;font-weight:700;text-transform:uppercase}.position-state-note{font-size:10px;color:#52636b;margin-top:5px}.department-label-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;margin:7px 0;background:#f4f7f8;border:1px solid #d6e0e5;font-size:12px}.department-label-row strong{color:#003b5c}.admin-modal .admin-grid label[hidden]{display:none}</style>');
@@ -287,3 +285,4 @@ legend = function() {
   const note = '<p style="margin-top:20px">';
   return markup.includes(note) ? markup.replace(note, leadershipKeyMarkup() + note) : markup.replace('</aside>', leadershipKeyMarkup() + '</aside>');
 };
+
