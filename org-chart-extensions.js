@@ -1,14 +1,13 @@
 document.head.insertAdjacentHTML('beforeend', `<style>
-/* Join each branch at its actual center, including uneven subtrees and labels. */
-.tree-branch{position:relative}
-.tree-children{align-items:flex-start;margin-top:40px}
-.tree-branch>.tree-children::before{content:"";position:absolute;left:50%;right:auto;top:-40px;width:0;height:20px;border-top:0;border-left:1px solid #9eb1a7}
-.tree-children>.tree-branch::before{content:"";position:absolute;left:-9px;right:-9px;top:-20px;width:auto;height:0;border-left:0;border-top:1px solid #9eb1a7}
-.tree-children>.tree-branch:first-child::before{left:50%}
-.tree-children>.tree-branch:last-child::before{right:50%}
-.tree-children>.tree-branch:only-child::before{display:none}
-.tree-children>.tree-branch::after{content:"";position:absolute;left:50%;top:-20px;width:0;height:20px;border-left:1px solid #9eb1a7}
-.tree-children>.tree-branch.branch-indirect::after{border-left-style:dashed}
+/* Separate indirect relationships into side branches with their own connectors. */
+.tree-branch{position:relative;display:flex;flex-direction:row;align-items:flex-start;gap:36px}
+.tree-main{display:flex;flex-direction:column;align-items:center;flex:0 0 auto}
+.tree-main>.tree-children{display:flex;align-items:flex-start;justify-content:center;gap:18px;margin-top:40px}
+.tree-indirect-children{display:flex;align-items:flex-start;gap:36px;flex:0 0 auto}
+.tree-branch::before,.tree-branch::after,.tree-children::before,.tree-children::after{display:none!important}
+.org-connectors{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;overflow:visible}
+.org-connectors path{fill:none;stroke:#9eb1a7;stroke-width:1;stroke-linejoin:round}
+.org-connectors .connector-indirect{stroke-dasharray:4 4}
 .indirect-line-swatch{display:inline-block;width:26px;height:0;flex:none;border-top:1px dashed #9eb1a7}
 #org-print-sheet .indirect-line-swatch{width:18pt}
 .node.node-top-level{background:linear-gradient(135deg,rgba(255,255,255,0),rgba(255,255,255,.35)),repeating-linear-gradient(135deg,#dfeaf0 0px,#dfeaf0 8px,#edf3f7 8px,#edf3f7 16px)}
@@ -88,20 +87,32 @@ function syncReportingConnection(form) {
   const hasParent = Boolean(form.elements.namedItem('reportsTo').value);
   field.disabled = !hasParent;
   if (!hasParent) field.value = 'direct';
+  const placement = form.elements.namedItem('placementLevel');
+  if (placement) { placement.disabled = !hasParent; if (!hasParent) placement.value = '0'; }
 }
 
 function connectionValue(data, reportsTo) {
   return reportsTo && data.get('connectionType') === 'indirect' ? 'indirect' : 'direct';
 }
 
+function placementLevel(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 0 && number <= 5 ? number : 0;
+}
+
+function placementField(person = []) {
+  const level = person[10] ? placementLevel(person[14]) : 0;
+  return '<label class="admin-wide">Placement level<select name="placementLevel" ' + (!person[10] ? 'disabled' : '') + '>' + Array.from({length:6}, (_, index) => '<option value="' + index + '" ' + (level === index ? 'selected' : '') + '>' + (index === 0 ? 'Standard row below supervisor' : index + (index === 1 ? ' level lower' : ' levels lower')) + '</option>').join('') + '</select><small class="hierarchy-note">Move this position and its reports lower without changing who it reports to.</small></label>';
+}
+
 function connectionField(person = []) {
-  return '<label class="admin-wide">Connection type<select name="connectionType" ' + (!person[10] ? 'disabled' : '') + '>' + connectionOptions(person) + '</select><small class="hierarchy-note">Choose a Reports to position first. Dashed changes only the final line into this box; the shared horizontal line stays solid.</small></label>';
+  return '<label class="admin-wide">Connection type<select name="connectionType" ' + (!person[10] ? 'disabled' : '') + '>' + connectionOptions(person) + '</select><small class="hierarchy-note">Choose a Reports to position first. Indirect positions have their own dashed line from the supervisor, separate from the shared direct-report line.</small></label>';
 }
 
 function leadershipKeyMarkup(print = false) {
   return print
     ? '<div class="print-key-row leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><strong>Leadership</strong></div><div class="print-key-row indirect-key"><span class="indirect-line-swatch" aria-hidden="true"></span><strong>Dashed line = indirect relationship</strong></div>'
-    : '<div class="legend-item leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><span><strong>Leadership</strong><small>Double inset border; category color stays the same</small></span></div><div class="legend-item indirect-key"><span class="indirect-line-swatch" aria-hidden="true"></span><span><strong>Indirect relationship</strong><small>Dashed line into the position</small></span></div>';
+    : '<div class="legend-item leadership-key"><span class="leadership-swatch" aria-hidden="true"></span><span><strong>Leadership</strong><small>Double inset border; category color stays the same</small></span></div><div class="legend-item indirect-key"><span class="indirect-line-swatch" aria-hidden="true"></span><span><strong>Indirect relationship</strong><small>Separate dashed line from the supervisor</small></span></div>';
 }
 
 document.head.insertAdjacentHTML('beforeend', '<style>.org-label-node{min-width:180px;padding:12px 20px;background:#e5f1f6;border:2px solid #0072a8;color:#003b5c;text-align:center;font-size:13px;font-weight:700;box-shadow:0 3px 10px #003b5c12}.node-vacant{border-style:dashed!important;background:#fffdf8}.node-vacant .vacant-avatar{width:40px;height:40px;display:grid;place-items:center;border-radius:0;background:#f2b544;color:#000;font-weight:700}.vacant-badge{display:inline-block;margin:8px 0;padding:4px 7px;background:#fff0c2;color:#000;font-size:10px;font-weight:700;text-transform:uppercase}.position-state-note{font-size:10px;color:#52636b;margin-top:5px}.department-label-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 12px;margin:7px 0;background:#f4f7f8;border:1px solid #d6e0e5;font-size:12px}.department-label-row strong{color:#003b5c}.admin-modal .admin-grid label[hidden]{display:none}</style>');
@@ -185,7 +196,7 @@ showPositionAdmin = function() {
     const departmentPeople = people.filter((person) => person[3] === dept);
     const departmentGroups = orgGroups.filter((group) => group.department === dept);
     const parentOptions = orgParentOptions(dept);
-    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" onsubmit="addManagedPosition(event)"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(dept)} positions</span><h2>Manage positions</h2><p>Add filled or vacant positions and organize them under reporting lines or section labels.</p><div class="admin-section"><h3>Add position</h3><div class="admin-grid"><label>Position status<select name="status" onchange="toggleVacancyFields(this)"><option value="filled">Filled position</option><option value="vacant">Vacant position</option></select><small class="position-state-note">Enter the employee details for this filled position.</small></label><label>Person name<input name="name" required></label><label>Position ID<input name="pid" required onchange="reuseEmployeeForPid(this)"><small class="employee-reuse-note">The same employee PID can be used in different department charts.</small></label><label class="admin-wide">Full position title<input name="title" required placeholder="e.g. Deputy Director"></label><label class="admin-wide">Department<input name="department" value="${esc(dept)}" readonly></label><label>Responsibility category<select name="level">${positionLevelOptions(dept, '')}</select></label><label>Chart appearance<select name="leadership">${leadershipOptions()}</select></label><label class="admin-wide">Reports to<select name="reportsTo" onchange="syncReportingConnection(this.form)">${parentOptions}</select><small class="hierarchy-note">Choose a position or section label. This node will connect underneath it.</small></label>${connectionField()}<label class="vacancy-optional">Email<input name="email" type="email" required></label><label class="vacancy-optional">Mobile phone<input name="phone"></label><label class="vacancy-optional">Desk phone<input name="desk"></label><label class="admin-wide vacancy-optional">Photo URL<input name="photo" placeholder="https://... or choose a file"></label><label class="admin-wide vacancy-optional">Or choose a photo file<input name="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div></div><section class="admin-section"><h3>Department labels / sections</h3><p>Add a heading such as “Inspection Area 5”; positions and nested labels can report to it.</p><div id="org-label-form" class="admin-grid"><label>Section label<input name="labelName" placeholder="e.g. Inspection Area 5"></label><label>Reports to<select name="labelParent">${parentOptions}</select></label><button type="button" class="primary" onclick="addDepartmentLabel()">Add section label</button></div>${departmentGroups.map((group) => `<div class="department-label-row"><span><strong>${esc(group.name)}</strong><small>${group.reportsTo ? ' · Nested section' : ' · Top-level section'}</small></span><button type="button" class="delete-admin" onclick="removeDepartmentLabel('${esc(group.id)}')">Delete label</button></div>`).join('') || '<p>No department labels yet.</p>'}</section><div class="admin-section"><h3>Delete position</h3>${departmentPeople.map((person) => `<div class="position-delete-row"><span>${person[11] ? `${esc(person[2])} · Vacant` : esc(person[1])} <small>${esc(person[5])}</small></span><button type="button" class="delete-admin" onclick="deleteManagedPosition('${esc(person[0])}')">Delete</button></div>`).join('') || '<p>No positions in this department yet.</p>'}</div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button><button class="primary">Add position</button></div></form></div>`;
+    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" onsubmit="addManagedPosition(event)"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(dept)} positions</span><h2>Manage positions</h2><p>Add filled or vacant positions and organize them under reporting lines or section labels.</p><div class="admin-section"><h3>Add position</h3><div class="admin-grid"><label>Position status<select name="status" onchange="toggleVacancyFields(this)"><option value="filled">Filled position</option><option value="vacant">Vacant position</option></select><small class="position-state-note">Enter the employee details for this filled position.</small></label><label>Person name<input name="name" required></label><label>Position ID<input name="pid" required onchange="reuseEmployeeForPid(this)"><small class="employee-reuse-note">The same employee PID can be used in different department charts.</small></label><label class="admin-wide">Full position title<input name="title" required placeholder="e.g. Deputy Director"></label><label class="admin-wide">Department<input name="department" value="${esc(dept)}" readonly></label><label>Responsibility category<select name="level">${positionLevelOptions(dept, '')}</select></label><label>Chart appearance<select name="leadership">${leadershipOptions()}</select></label><label class="admin-wide">Reports to<select name="reportsTo" onchange="syncReportingConnection(this.form)">${parentOptions}</select><small class="hierarchy-note">Choose a position or section label. This node will connect underneath it.</small></label>${connectionField()}${placementField()}<label class="vacancy-optional">Email<input name="email" type="email" required></label><label class="vacancy-optional">Mobile phone<input name="phone"></label><label class="vacancy-optional">Desk phone<input name="desk"></label><label class="admin-wide vacancy-optional">Photo URL<input name="photo" placeholder="https://... or choose a file"></label><label class="admin-wide vacancy-optional">Or choose a photo file<input name="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div></div><section class="admin-section"><h3>Department labels / sections</h3><p>Add a heading such as “Inspection Area 5”; positions and nested labels can report to it.</p><div id="org-label-form" class="admin-grid"><label>Section label<input name="labelName" placeholder="e.g. Inspection Area 5"></label><label>Reports to<select name="labelParent">${parentOptions}</select></label><button type="button" class="primary" onclick="addDepartmentLabel()">Add section label</button></div>${departmentGroups.map((group) => `<div class="department-label-row"><span><strong>${esc(group.name)}</strong><small>${group.reportsTo ? ' · Nested section' : ' · Top-level section'}</small></span><button type="button" class="delete-admin" onclick="removeDepartmentLabel('${esc(group.id)}')">Delete label</button></div>`).join('') || '<p>No department labels yet.</p>'}</section><div class="admin-section"><h3>Delete position</h3>${departmentPeople.map((person) => `<div class="position-delete-row"><span>${person[11] ? `${esc(person[2])} · Vacant` : esc(person[1])} <small>${esc(person[5])}</small></span><button type="button" class="delete-admin" onclick="deleteManagedPosition('${esc(person[0])}')">Delete</button></div>`).join('') || '<p>No positions in this department yet.</p>'}</div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button><button class="primary">Add position</button></div></form></div>`;
   });
 };
 
@@ -206,7 +217,7 @@ addManagedPosition = async function(event) {
   const validParent = people.some((person) => person[0] === reportsTo && (person[3] === dept || person[0] === 'ceo')) || orgGroups.some((group) => group.id === reportsTo && group.department === dept);
   if (reportsTo && !validParent) { alert('Choose a parent position or section from this department.'); return; }
   const photo = vacant ? '' : await readImageFile(form.querySelector('[name="photoFile"]'), String(data.get('photo') || form.dataset.reusedPhoto || `https://i.pravatar.cc/160?u=${id}`));
-  people.push([id, vacant ? 'Vacant' : String(data.get('name')).trim(), title, dept, String(data.get('level')), pid, vacant ? '' : String(data.get('phone') || ''), vacant ? '' : String(data.get('desk') || ''), vacant ? '' : email, photo, reportsTo, vacant, leadershipValue(data), connectionValue(data, reportsTo)]);
+  people.push([id, vacant ? 'Vacant' : String(data.get('name')).trim(), title, dept, String(data.get('level')), pid, vacant ? '' : String(data.get('phone') || ''), vacant ? '' : String(data.get('desk') || ''), vacant ? '' : email, photo, reportsTo, vacant, leadershipValue(data), connectionValue(data, reportsTo), reportsTo ? placementLevel(data.get('placementLevel')) : 0]);
   syncEmployeeDetails(people[people.length - 1]);
   localStorage.setItem('org-chart-people', JSON.stringify(people));
   selected = null;
@@ -223,11 +234,70 @@ function positionNodeMarkup(person) {
   return `<button class="node ${person[10] ? '' : 'node-top-level'} ${positionIsLeader(person) ? 'node-leader' : ''} ${vacant ? 'node-vacant' : ''}" data-position-id="${esc(person[0])}" style="border-left-color:${color}" onclick="selected=people.find(x=>x[0]==='${esc(person[0])}');render()">${vacant ? '<span class="vacant-avatar">V</span>' : `<img class="employee-photo" src="${esc(orgPhotoUrl(person[9]))}" alt="">`}<span class="node-copy"><strong>${esc(vacant ? person[2] : person[1])}</strong><span>${vacant ? 'Vacant' : esc(person[2])}</span><small>${esc(person[5])}</small></span></button>`;
 }
 
-function combinedTreeBranch(entity, allEntities) {
+function combinedTreeBranch(entity, allEntities, nested = false) {
   const children = allEntities.filter((candidate) => candidate.parentId === entity.id);
+  const indirect = children.filter(child => child.type === 'person' && child.person[13] === 'indirect');
+  const direct = children.filter(child => !indirect.includes(child));
   const node = entity.type === 'group' ? `<div class="org-label-node">${esc(entity.name)}</div>` : positionNodeMarkup(entity.person);
-  return `<div class="tree-branch ${entity.type === 'person' && entity.parentId && entity.person[13] === 'indirect' ? 'branch-indirect' : ''}" data-entity-id="${esc(entity.id)}">${node}${children.length ? `<div class="tree-children">${children.map((child) => combinedTreeBranch(child, allEntities)).join('')}</div>` : ''}</div>`;
+  const lower = nested && entity.type === 'person' ? placementLevel(entity.person[14]) * 122 : 0;
+  return `<div class="tree-branch" data-entity-id="${esc(entity.id)}" style="margin-top:${lower}px"><div class="tree-main">${node}${direct.length ? `<div class="tree-children">${direct.map(child => combinedTreeBranch(child, allEntities, true)).join('')}</div>` : ''}</div>${indirect.length ? `<div class="tree-indirect-children">${indirect.map(child => combinedTreeBranch(child, allEntities, true)).join('')}</div>` : ''}</div>`;
 }
+
+function refreshOrgConnectors(container) {
+  const branches = [...container.querySelectorAll('.tree-branch')];
+  // Set side-branch spacing before measuring any paths, including nested sections.
+  for (const branch of branches) {
+    const node = branch.querySelector(':scope > .tree-main > .node, :scope > .tree-main > .org-label-node');
+    const side = branch.querySelector(':scope > .tree-indirect-children');
+    if (node && side) side.style.marginTop = `${node.offsetHeight + 40}px`;
+  }
+  for (const branch of branches) {
+    const main = branch.querySelector(':scope > .tree-main');
+    const node = main?.querySelector(':scope > .node, :scope > .org-label-node');
+    if (!node) continue;
+    const direct = [...(main.querySelector(':scope > .tree-children')?.children || [])];
+    const indirect = [...(branch.querySelector(':scope > .tree-indirect-children')?.children || [])];
+    branch.querySelector(':scope > .org-connectors')?.remove();
+    if (!direct.length && !indirect.length) continue;
+    const bounds = branch.getBoundingClientRect();
+    const style = getComputedStyle(branch);
+    const width = parseFloat(style.width), height = parseFloat(style.height);
+    if (!(width > 0 && height > 0)) continue;
+    const scaleX = bounds.width / width, scaleY = bounds.height / height;
+    const rect = element => {
+      const value = element.getBoundingClientRect();
+      return {left:(value.left-bounds.left)/scaleX, right:(value.right-bounds.left)/scaleX, top:(value.top-bounds.top)/scaleY, bottom:(value.bottom-bounds.top)/scaleY, center:(value.left+value.width/2-bounds.left)/scaleX};
+    };
+    const parent = rect(node);
+    const childNode = child => child.querySelector(':scope > .tree-main > .node, :scope > .tree-main > .org-label-node');
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('class','org-connectors'); svg.setAttribute('aria-hidden','true');
+    svg.setAttribute('viewBox',`0 0 ${width} ${height}`);
+    const path = (d, kind, child) => {
+      const line = document.createElementNS(svg.namespaceURI,'path');
+      line.setAttribute('d',d); line.setAttribute('class',kind);
+      if (child) line.setAttribute('data-child-id',child.dataset.entityId);
+      svg.appendChild(line);
+    };
+    if (direct.length) {
+      const bus = parent.bottom + 20;
+      const targets = direct.map(child => rect(childNode(child)));
+      path(`M ${parent.center} ${parent.bottom} V ${bus}`,'connector-direct-stem');
+      const xs = [parent.center,...targets.map(target => target.center)];
+      path(`M ${Math.min(...xs)} ${bus} H ${Math.max(...xs)}`,'connector-direct-bus');
+      direct.forEach((child,index) => path(`M ${targets[index].center} ${bus} V ${targets[index].top}`,'connector-direct',child));
+    }
+    // Each dashed line starts on the supervisor's side and bypasses the solid bus.
+    // Farther side branches leave higher on the box so their lines remain distinct.
+    indirect.forEach((child,index) => {
+      const target = rect(childNode(child));
+      const port = parent.bottom - 12 - index * Math.min(8,(parent.bottom-parent.top-24)/Math.max(1,indirect.length-1));
+      path(`M ${parent.right} ${port} H ${target.center} V ${target.top}`,'connector-indirect',child);
+    });
+    branch.appendChild(svg);
+  }
+}
+
 
 orgTree = function(list) {
   const departmentGroups = orgGroups.filter((group) => group.department === dept);
@@ -263,7 +333,7 @@ showEditPosition = function(id) {
     if (!person) return;
     const vacant = Boolean(person[11]);
     const parentOptions = orgParentOptions(person[3], person[0], person[10] || '');
-    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" data-position-id="${esc(id)}" onsubmit="saveEditedPosition(event, '${esc(id)}')"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(person[3])} position</span><h2>Edit position</h2><div class="admin-grid"><label>Position status<select name="status" onchange="toggleVacancyFields(this)"><option value="filled" ${vacant ? '' : 'selected'}>Filled position</option><option value="vacant" ${vacant ? 'selected' : ''}>Vacant position</option></select><small class="position-state-note">${vacant ? 'Contact fields are optional for a vacant position.' : 'Employee details are required.'}</small></label><label>Person name<input name="name" value="${esc(vacant ? 'Vacant' : person[1])}" ${vacant ? 'readonly' : 'required'}></label><label>Position ID<input name="pid" value="${esc(person[5])}" ${vacant ? '' : 'required'} onchange="reuseEmployeeForPid(this)"><small class="employee-reuse-note">The same employee PID can be used in different department charts.</small></label><label class="admin-wide">Full position title<input name="title" value="${esc(person[2])}" required></label><label>Department<select name="department" onchange="updateEditDepartmentWithGroups(this, '${esc(id)}')">${departmentOptions(person[3])}</select></label><label>Responsibility category<select name="level">${positionLevelOptions(person[3], person[4])}</select></label><label>Chart appearance<select name="leadership">${leadershipOptions(person)}</select></label><label class="admin-wide">Reports to<select name="reportsTo" onchange="syncReportingConnection(this.form)">${parentOptions}</select></label>${connectionField(person)}<label class="vacancy-optional" ${vacant ? 'hidden' : ''}>Email<input name="email" type="email" value="${esc(person[8])}" ${vacant ? '' : 'required'}></label><label class="vacancy-optional" ${vacant ? 'hidden' : ''}>Mobile phone<input name="phone" value="${esc(person[6])}"></label><label class="vacancy-optional" ${vacant ? 'hidden' : ''}>Desk phone<input name="desk" value="${esc(person[7])}"></label><label class="admin-wide vacancy-optional" ${vacant ? 'hidden' : ''}>Photo URL<input name="photo" value="${esc(person[9])}" placeholder="https://... or choose a file"></label><label class="admin-wide vacancy-optional" ${vacant ? 'hidden' : ''}>Or choose a new photo file<input name="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Cancel</button><button class="primary">Save position</button></div></form></div>`;
+    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" data-position-id="${esc(id)}" onsubmit="saveEditedPosition(event, '${esc(id)}')"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(person[3])} position</span><h2>Edit position</h2><div class="admin-grid"><label>Position status<select name="status" onchange="toggleVacancyFields(this)"><option value="filled" ${vacant ? '' : 'selected'}>Filled position</option><option value="vacant" ${vacant ? 'selected' : ''}>Vacant position</option></select><small class="position-state-note">${vacant ? 'Contact fields are optional for a vacant position.' : 'Employee details are required.'}</small></label><label>Person name<input name="name" value="${esc(vacant ? 'Vacant' : person[1])}" ${vacant ? 'readonly' : 'required'}></label><label>Position ID<input name="pid" value="${esc(person[5])}" ${vacant ? '' : 'required'} onchange="reuseEmployeeForPid(this)"><small class="employee-reuse-note">The same employee PID can be used in different department charts.</small></label><label class="admin-wide">Full position title<input name="title" value="${esc(person[2])}" required></label><label>Department<select name="department" onchange="updateEditDepartmentWithGroups(this, '${esc(id)}')">${departmentOptions(person[3])}</select></label><label>Responsibility category<select name="level">${positionLevelOptions(person[3], person[4])}</select></label><label>Chart appearance<select name="leadership">${leadershipOptions(person)}</select></label><label class="admin-wide">Reports to<select name="reportsTo" onchange="syncReportingConnection(this.form)">${parentOptions}</select></label>${connectionField(person)}${placementField(person)}<label class="vacancy-optional" ${vacant ? 'hidden' : ''}>Email<input name="email" type="email" value="${esc(person[8])}" ${vacant ? '' : 'required'}></label><label class="vacancy-optional" ${vacant ? 'hidden' : ''}>Mobile phone<input name="phone" value="${esc(person[6])}"></label><label class="vacancy-optional" ${vacant ? 'hidden' : ''}>Desk phone<input name="desk" value="${esc(person[7])}"></label><label class="admin-wide vacancy-optional" ${vacant ? 'hidden' : ''}>Photo URL<input name="photo" value="${esc(person[9])}" placeholder="https://... or choose a file"></label><label class="admin-wide vacancy-optional" ${vacant ? 'hidden' : ''}>Or choose a new photo file<input name="photoFile" type="file" accept="image/jpeg,image/png,image/webp"></label></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Cancel</button><button class="primary">Save position</button></div></form></div>`;
   });
 };
 
@@ -285,7 +355,7 @@ saveEditedPosition = async function(event, id) {
   const parentExists = people.some((entry) => entry[0] === reportsTo && (entry[3] === department || entry[0] === 'ceo')) || orgGroups.some((group) => group.id === reportsTo && group.department === department);
   if (reportsTo && !parentExists) { alert('Choose a parent position or section from this department.'); return; }
   const photo = vacant ? '' : await readImageFile(form.querySelector('[name="photoFile"]'), String(data.get('photo') || form.dataset.reusedPhoto || person[9]));
-  person[1] = vacant ? 'Vacant' : String(data.get('name')).trim(); person[2] = String(data.get('title')).trim(); person[3] = department; person[4] = String(data.get('level')); person[5] = pid; person[6] = vacant ? '' : String(data.get('phone') || ''); person[7] = vacant ? '' : String(data.get('desk') || ''); person[8] = vacant ? '' : email; person[9] = photo; person[10] = reportsTo; person[11] = vacant; person[12] = leadershipValue(data); person[13] = connectionValue(data, reportsTo);
+  person[1] = vacant ? 'Vacant' : String(data.get('name')).trim(); person[2] = String(data.get('title')).trim(); person[3] = department; person[4] = String(data.get('level')); person[5] = pid; person[6] = vacant ? '' : String(data.get('phone') || ''); person[7] = vacant ? '' : String(data.get('desk') || ''); person[8] = vacant ? '' : email; person[9] = photo; person[10] = reportsTo; person[11] = vacant; person[12] = leadershipValue(data); person[13] = connectionValue(data, reportsTo); person[14] = reportsTo ? placementLevel(data.get('placementLevel')) : 0;
   syncEmployeeDetails(person);
   localStorage.setItem('org-chart-people', JSON.stringify(people));
   selected = person; dept = department; closeAdd(); render();

@@ -270,6 +270,7 @@ function fitOrgChart() {
 	requestAnimationFrame(() => {
 		if (!content.isConnected) return;
 		content.style.transform = 'none';
+		if (window.refreshOrgConnectors) refreshOrgConnectors(content);
 		const naturalWidth = Math.max(content.scrollWidth, content.getBoundingClientRect().width);
 		const naturalHeight = Math.max(content.scrollHeight, content.getBoundingClientRect().height);
 		const availableWidth = Math.max(1, viewport.clientWidth - 24);
@@ -404,6 +405,7 @@ function fitPrintChart(sheet) {
     // Measure in the same physical sheet used for printing, with NO transform.
     // Absolute max-content sizing cannot shrink to the stage's width like flex items.
     chart.style.transform = 'none';
+    if (window.refreshOrgConnectors) refreshOrgConnectors(chart);
     const bounds = chart.getBoundingClientRect();
     // Include descendant bounds on BOTH sides: scrollWidth alone misses negative
     // overflow. Center the full visible hierarchy, not just its wrapper box.
@@ -614,5 +616,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261005-private-photos', () => loadSecurityScript('./org-chart-extensions.js?v=20261007-indirect-lines', () => loadSecurityScript('./secure-portal.js?v=20261005-photo-save-check')))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261005-private-photos', () => loadSecurityScript('./org-chart-extensions.js?v=20261007-separate-connectors', () => loadSecurityScript('./secure-portal.js?v=20261005-photo-save-check')))));
 </script></body></html>
