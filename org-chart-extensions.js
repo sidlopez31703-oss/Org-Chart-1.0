@@ -11,6 +11,15 @@ document.head.insertAdjacentHTML('beforeend', `<style>
 .org-label-node{cursor:pointer}
 .org-label-node:disabled{cursor:default;opacity:1}
 .org-label-node:focus-visible{outline:2px solid #003b5c;outline-offset:3px}
+.employee-photo-placeholder{display:block!important;width:40px;height:40px;flex:0 0 40px;background:#eef1f3}
+.departments{grid-auto-rows:1fr}
+.dept{display:flex;flex-direction:column;min-width:0}
+.dept figure{width:100%;flex:0 0 auto}
+.dept img{display:block}
+.dept .tag{right:14px;line-height:1.35;white-space:normal;overflow-wrap:anywhere;min-height:var(--dept-tag-height,0px)}
+.dept article{display:flex;flex-direction:column;flex:1;width:100%}
+.dept h3{line-height:1.25;overflow-wrap:anywhere;min-height:var(--dept-title-height,0px)}
+.dept p{flex:1;overflow-wrap:anywhere}
 .label-placement{display:block;margin-top:18px;font-size:12px;font-weight:700;color:#003b5c}
 .label-placement select{display:block;width:100%;margin:8px 0;padding:9px;border:1px solid #b9cbd4;background:#fff;color:#003b5c}
 .label-placement small{display:block;font-size:10px;font-weight:400;line-height:1.4;color:#52636b}
@@ -197,7 +206,25 @@ function labelPlacementOptions(group) {
 function orgLabelDetails(group) {
   const placement = placementLevel(group.reportsTo ? group.placementLevel : 0);
   const options = Array.from({length:6}, (_,index) => `<option value="${index}" ${index === placement ? 'selected' : ''}>${index === 0 ? 'Standard row below supervisor' : index + (index === 1 ? ' level lower' : ' levels lower')}</option>`).join('');
-  return `<aside class="panel org-label-panel"><button type="button" class="close" onclick="selected=null;render()">×</button><h3>${esc(group.name)}</h3><div class="details-actions"><button type="button" class="text-button" onclick="showEditOrgLabel('${esc(group.id)}')">Edit label</button></div><label class="label-placement">Placement level<select name="labelPlacementLevel" ${group.reportsTo ? '' : 'disabled'} onchange="setOrgLabelPlacement('${esc(group.id)}',this.value)">${options}</select><small>Moves the label and its entire branch lower. Changes save automatically.</small></label>${branchOrderControls(group.id)}</aside>`;
+  return `<aside class="panel org-label-panel"><button type="button" class="close" onclick="selected=null;render()">×</button><h3>${esc(group.name)}</h3><div class="details-actions"><button type="button" class="text-button" onclick="showEditOrgLabel('${esc(group.id)}')">Edit label</button></div><label class="label-placement">Parent<select name="labelParent" onchange="setOrgLabelParent('${esc(group.id)}',this.value)">${orgParentOptions(group.department,group.id,group.reportsTo || '')}</select><small>Choose a position or another label. Its children stay attached to this label.</small></label><label class="label-placement">Placement level<select name="labelPlacementLevel" ${group.reportsTo ? '' : 'disabled'} onchange="setOrgLabelPlacement('${esc(group.id)}',this.value)">${options}</select><small>Moves the label and its entire branch lower. Changes save automatically.</small></label>${branchOrderControls(group.id)}</aside>`;
+}
+
+function setOrgLabelParent(id, reportsTo) {
+  requireAdmin(() => {
+    const group = orgGroups.find(entry => entry.id === id && entry.department === dept);
+    if (!group) return;
+    const validParent = people.some(person => person[0] === reportsTo && (person[3] === group.department || person[0] === 'ceo')) || orgGroups.some(entry => entry.id === reportsTo && entry.department === group.department);
+    if (reportsTo && (!validParent || positionHasCycle(id,reportsTo))) {
+      alert('Choose a valid parent that does not create a reporting loop.'); render(); return;
+    }
+    if ((group.reportsTo || '') === reportsTo) return;
+    group.reportsTo = reportsTo;
+    group.chartOrder = null;
+    if (!reportsTo) group.placementLevel = 0;
+    localStorage.setItem('org-chart-groups',JSON.stringify(orgGroups));
+    selected = {orgLabelId:id};
+    render();
+  });
 }
 
 function setOrgLabelPlacement(id, value) {
@@ -310,7 +337,7 @@ addManagedPosition = async function(event) {
   const reportsTo = String(data.get('reportsTo') || '');
   const validParent = people.some((person) => person[0] === reportsTo && (person[3] === dept || person[0] === 'ceo')) || orgGroups.some((group) => group.id === reportsTo && group.department === dept);
   if (reportsTo && !validParent) { alert('Choose a parent position or section from this department.'); return; }
-  const photo = vacant ? '' : await readImageFile(form.querySelector('[name="photoFile"]'), String(data.get('photo') || form.dataset.reusedPhoto || `https://i.pravatar.cc/160?u=${id}`));
+  const photo = vacant ? '' : await readImageFile(form.querySelector('[name="photoFile"]'), String(data.get('photo') || form.dataset.reusedPhoto || ''));
   people.push([id, vacant ? 'Vacant' : String(data.get('name')).trim(), title, dept, String(data.get('level')), pid, vacant ? '' : String(data.get('phone') || ''), vacant ? '' : String(data.get('desk') || ''), vacant ? '' : email, photo, reportsTo, vacant, leadershipValue(data), connectionValue(data, reportsTo), reportsTo ? placementLevel(data.get('placementLevel')) : 0]);
   syncEmployeeDetails(people[people.length - 1]);
   localStorage.setItem('org-chart-people', JSON.stringify(people));
@@ -325,7 +352,7 @@ function positionNodeMarkup(person) {
   const vacant = Boolean(person[11]);
   const category = levelsFor(person[3]).find((entry) => entry.name.toLowerCase() === String(person[4]).toLowerCase());
   const color = category ? levelColorMap[category.color] || '#66727a' : '#66727a';
-  return `<button class="node ${person[10] ? '' : 'node-top-level'} ${positionIsLeader(person) ? 'node-leader' : ''} ${vacant ? 'node-vacant' : ''}" data-position-id="${esc(person[0])}" style="border-left-color:${color}" onclick="selected=people.find(x=>x[0]==='${esc(person[0])}');render()">${vacant ? '<span class="vacant-avatar">V</span>' : `<img class="employee-photo" src="${esc(orgPhotoUrl(person[9]))}" alt="">`}<span class="node-copy"><strong>${esc(vacant ? person[2] : person[1])}</strong><span>${vacant ? 'Vacant' : esc(person[2])}</span><small>${esc(person[5])}</small></span></button>`;
+  return `<button class="node ${person[10] ? '' : 'node-top-level'} ${positionIsLeader(person) ? 'node-leader' : ''} ${vacant ? 'node-vacant' : ''}" data-position-id="${esc(person[0])}" style="border-left-color:${color}" onclick="selected=people.find(x=>x[0]==='${esc(person[0])}');render()">${vacant ? '<span class="vacant-avatar">V</span>' : `${person[9] ? `<img class="employee-photo" src="${esc(orgPhotoUrl(person[9]))}" alt="">` : '<span class="employee-photo-placeholder" aria-hidden="true"></span>'}`}<span class="node-copy"><strong>${esc(vacant ? person[2] : person[1])}</strong><span>${vacant ? 'Vacant' : esc(person[2])}</span><small>${esc(person[5])}</small></span></button>`;
 }
 
 function chartBranchOrder(entity) {
@@ -537,3 +564,22 @@ legend = function() {
   return markup.includes(note) ? markup.replace(note, leadershipKeyMarkup() + note) : markup.replace('</aside>', leadershipKeyMarkup() + '</aside>');
 };
 
+
+
+function alignDepartmentCards() {
+  const grid = document.querySelector('#view .departments');
+  if (!grid) return;
+  grid.style.removeProperty('--dept-title-height');
+  grid.style.removeProperty('--dept-tag-height');
+  for (const [selector,property] of [['.dept h3','--dept-title-height'],['.dept .tag','--dept-tag-height']]) {
+    const heights = [...grid.querySelectorAll(selector)].map(node => node.getBoundingClientRect().height);
+    grid.style.setProperty(property,Math.ceil(Math.max(0,...heights)) + 'px');
+  }
+}
+const renderBeforeDepartmentAlignment = render;
+render = function(...args) {
+  renderBeforeDepartmentAlignment(...args);
+  alignDepartmentCards();
+};
+window.addEventListener('resize',alignDepartmentCards);
+if (document.fonts) document.fonts.ready.then(alignDepartmentCards);
