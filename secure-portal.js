@@ -515,13 +515,14 @@
       });
       document.getElementById('org-invite-form').addEventListener('submit', async (event) => {
         event.preventDefault();
-        const data = new FormData(event.currentTarget);
-        const feedback = event.currentTarget.querySelector('button[type="submit"]');
+        const inviteForm = event.currentTarget;
+        const data = new FormData(inviteForm);
+        const feedback = inviteForm.querySelector('button[type="submit"]');
         feedback.disabled = true;
         try {
           const result = await callSharingFunction({ action: 'invite', email: data.get('email'), role: data.get('role') });
           alert(result.invitationSent ? 'Invitation sent. The recipient can follow the email link to sign in.' : 'Access granted. This email already has an account; ask them to request a sign-in link from the directory.');
-          event.currentTarget.reset();
+          inviteForm.reset();
           await refreshShareList();
         } catch (error) { alert(error.message); }
         finally { feedback.disabled = false; }
