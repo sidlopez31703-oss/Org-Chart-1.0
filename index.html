@@ -644,5 +644,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261014-chart-background', () => loadSecurityScript('./org-chart-extensions.js?v=20261014-chart-background', () => loadSecurityScript('./secure-portal.js?v=20261014-invite-form-fix')))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261014-chart-background', () => loadSecurityScript('./org-chart-extensions.js?v=20261014-chart-background', () => loadSecurityScript('./secure-portal.js?v=20261014-sharing-error-details')))));
 </script></body></html>

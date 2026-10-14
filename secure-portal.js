@@ -454,7 +454,18 @@
 
   async function callSharingFunction(body) {
     const { data, error } = await client.functions.invoke('manage-sharing', { body });
-    if (error) throw new Error(data?.error || error.message || 'Request failed.');
+    if (error) {
+      let detail = data?.error;
+      if (!detail && typeof error.context?.json === 'function') {
+        try {
+          const response = typeof error.context.clone === 'function' ? error.context.clone() : error.context;
+          const payload = await response.json();
+          detail = payload?.error || payload?.message || payload?.msg;
+        } catch { /* Non-JSON gateway failures retain their original error. */ }
+      }
+      if (typeof detail !== 'string' || !detail.trim()) detail = error.message || 'Request failed.';
+      throw new Error(detail);
+    }
     if (data?.error) throw new Error(data.error);
     return data;
   }
