@@ -19,6 +19,7 @@
       result.push({ owner: department, key: 4 });
     }
     if (state.siteSettings) result.push({ owner: state.siteSettings, key: 'brandImage' });
+    if (state.siteSettings?.chartBackground) result.push({ owner: state.siteSettings.chartBackground, key: 'reference' });
     return result;
   }
   function refs(state) {
