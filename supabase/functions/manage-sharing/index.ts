@@ -24,7 +24,7 @@ function generateViewerToken() {
 }
 
 async function signDirectoryPhotos(service: ReturnType<typeof createClient>, state: { people?: unknown[][]; departments?: unknown[][]; siteSettings?: { brandImage?: unknown } }) {
-  const values = [...(state.people || []).map(person => person[9]), ...(state.departments || []).map(department => department[2]), state.siteSettings?.brandImage];
+  const values = [...(state.people || []).map(person => person[9]), ...(state.departments || []).flatMap(department => [department[2], department[4]]), state.siteSettings?.brandImage];
   const paths = [...new Set(values.filter((value): value is string => typeof value === 'string' && /^org-photo:photos\/[a-f0-9-]+\.(webp|jpg|png)$/.test(value)).map(value => value.slice('org-photo:'.length)))];
   const signed: { path: string; signedUrl: string; error?: string | null }[] = [];
   for (let index = 0; index < paths.length; index += 100) {

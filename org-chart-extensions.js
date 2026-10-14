@@ -583,3 +583,91 @@ render = function(...args) {
 };
 window.addEventListener('resize',alignDepartmentCards);
 if (document.fonts) document.fonts.ready.then(alignDepartmentCards);
+
+document.head.insertAdjacentHTML('beforeend', `<style>
+.canvas{position:relative;isolation:isolate}
+.canvas>.tree{position:relative;z-index:1}
+.chart-background-image{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:0;object-position:center}
+#org-print-sheet .print-chart-stage{z-index:1}
+.chart-background-button{height:36px;font-size:11px}
+.background-preview{display:block;width:100%;height:160px;object-fit:contain;background:#eef1f3;border:1px solid #cbd8de;margin-bottom:14px}
+.background-feedback{font-size:12px;color:#52636b;line-height:1.5}
+</style>`);
+
+function chartBackgroundSettings(name) {
+  const department = depts.find(entry => entry[0] === name);
+  return {reference:department?.[4] || '',fit:department?.[5] === 'cover' ? 'cover' : 'contain',opacity:typeof department?.[6] === 'number' ? Math.max(.1,Math.min(1,department[6])) : .35};
+}
+
+function applyOrgChartBackground(container, name) {
+  if (!container) return;
+  container.querySelector(':scope > .chart-background-image')?.remove();
+  const settings = chartBackgroundSettings(name);
+  if (!settings.reference) return;
+  const image = document.createElement('img');
+  image.className = 'chart-background-image';
+  image.alt = ''; image.setAttribute('aria-hidden','true');
+  image.src = orgPhotoUrl(settings.reference);
+  image.style.objectFit = settings.fit;
+  image.style.opacity = String(settings.opacity);
+  container.prepend(image);
+}
+
+function showChartBackground() {
+  requireAdmin(() => {
+    if (!dept) return;
+    const settings = chartBackgroundSettings(dept);
+    document.getElementById('modal').innerHTML = `<div class="modal"><form class="form admin-modal" data-background-department="${esc(dept)}" onsubmit="saveChartBackground(event)"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">${esc(dept)} chart</span><h2>Chart background</h2>${settings.reference ? `<img class="background-preview" src="${esc(orgPhotoUrl(settings.reference))}" alt="Current chart background">` : ''}<div class="admin-grid"><label class="admin-wide">Upload background photo<input name="backgroundFile" type="file" accept="image/jpeg,image/png,image/webp"></label><label>Image fit<select name="backgroundFit"><option value="contain" ${settings.fit === 'contain' ? 'selected' : ''}>Fit entire photo</option><option value="cover" ${settings.fit === 'cover' ? 'selected' : ''}>Fill chart area (crop edges)</option></select></label><label>Image strength (%)<input name="backgroundStrength" type="number" min="10" max="100" value="${Math.round(settings.opacity*100)}" required></label></div><p class="background-feedback" role="status">This department's background appears on screen and in the printed chart. The photo is compressed and stored privately.</p><div class="admin-actions">${settings.reference ? '<button type="button" class="delete-admin" onclick="removeChartBackground()">Remove background</button>' : ''}<button type="button" class="cancel" onclick="closeAdd()">Cancel</button><button class="primary">Save background</button></div></form></div>`;
+  });
+}
+
+function saveChartBackground(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  requireAdmin(async () => {
+    const department = depts.find(entry => entry[0] === form.dataset.backgroundDepartment);
+    if (!department) return;
+    const file = form.elements.namedItem('backgroundFile').files[0];
+    const submit = form.querySelector('button.primary');
+    const feedback = form.querySelector('.background-feedback');
+    const fit = form.elements.namedItem('backgroundFit').value === 'cover' ? 'cover' : 'contain';
+    const opacity = Math.max(.1,Math.min(1,Number(form.elements.namedItem('backgroundStrength').value)/100 || .35));
+    if (!file && !department[4]) { feedback.textContent = 'Choose a background photo first.'; return; }
+    submit.disabled = true;
+    feedback.textContent = file ? 'Uploading background…' : 'Saving background…';
+    try {
+      const reference = file ? await OrgPhotos.upload(file,{background:true}) : department[4];
+      if (window.orgAuthRole !== 'admin' || !depts.includes(department)) throw new Error('The background could not be saved. Reopen the chart and try again.');
+      department[4] = reference; department[5] = fit; department[6] = opacity;
+      localStorage.setItem('org-chart-departments',JSON.stringify(depts));
+      closeAdd(); render();
+    } catch (error) { feedback.textContent = error.message || 'Background upload failed. Try again.'; }
+    finally { submit.disabled = false; }
+  });
+}
+
+function removeChartBackground() {
+  requireAdmin(() => {
+    const form = document.querySelector('[data-background-department]');
+    const department = depts.find(entry => entry[0] === form?.dataset.backgroundDepartment);
+    if (!department) return;
+    department[4] = ''; department[5] = 'contain'; department[6] = .35;
+    localStorage.setItem('org-chart-departments',JSON.stringify(depts));
+    closeAdd(); render();
+  });
+}
+
+const renderBeforeChartBackground = render;
+render = function(...args) {
+  renderBeforeChartBackground(...args);
+  if (!dept) return;
+  applyOrgChartBackground(document.querySelector('#view .canvas'),dept);
+  if (window.orgAuthRole !== 'admin') return;
+  const heading = document.querySelector('#view .heading');
+  if (heading && !heading.querySelector('.chart-background-button')) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'secondary chart-background-button';
+    button.textContent = 'Chart background'; button.onclick = showChartBackground;
+    heading.appendChild(button);
+  }
+};

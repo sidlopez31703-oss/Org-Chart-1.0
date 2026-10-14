@@ -14,7 +14,10 @@
   function slots(state) {
     const result = [];
     for (const person of state.people || []) result.push({ owner: person, key: 9 });
-    for (const department of state.departments || []) result.push({ owner: department, key: 2 });
+    for (const department of state.departments || []) {
+      result.push({ owner: department, key: 2 });
+      result.push({ owner: department, key: 4 });
+    }
     if (state.siteSettings) result.push({ owner: state.siteSettings, key: 'brandImage' });
     return result;
   }
@@ -39,7 +42,7 @@
       acceptUrls(data);
     }
   }
-  async function compress(file) {
+  async function compress(file, options = {}) {
     if (!imageTypes.has(file.type)) throw new Error('Choose a JPG, PNG, or WebP image.');
     if (file.size > 25 * 1024 * 1024) throw new Error('Choose an image smaller than 25 MB.');
     const objectUrl = URL.createObjectURL(file);
@@ -48,23 +51,25 @@
       image.src = objectUrl;
       await image.decode();
       if (!image.naturalWidth || !image.naturalHeight) throw new Error('The image could not be read.');
-      const scale = Math.min(1, 512 / Math.max(image.naturalWidth, image.naturalHeight));
+      const maxDimension = options.background ? 2048 : 512;
+      const targetBytes = (options.background ? 450 : 180) * 1024;
+      const scale = Math.min(1, maxDimension / Math.max(image.naturalWidth, image.naturalHeight));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
       canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
       canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
       let output;
-      for (const quality of [.85, .7, .55]) {
+      for (const quality of (options.background ? [.85, .7, .55, .4, .3] : [.85, .7, .55])) {
         output = await new Promise(resolve => canvas.toBlob(resolve, 'image/webp', quality));
-        if (output && output.size <= 180 * 1024) break;
+        if (output && output.size <= targetBytes) break;
       }
       if (!output || output.size > 512 * 1024) throw new Error('Could not optimize this image. Choose a smaller JPG, PNG, or WebP.');
       return output;
     } finally { URL.revokeObjectURL(objectUrl); }
   }
-  async function upload(file) {
+  async function upload(file, options = {}) {
     if (!client || !isAdmin()) throw new Error('Only directory administrators can upload photos.');
-    const optimized = await compress(file);
+    const optimized = await compress(file, options);
     const extension = optimized.type === 'image/webp' ? 'webp' : optimized.type === 'image/png' ? 'png' : 'jpg';
     const photoPath = `photos/${crypto.randomUUID()}.${extension}`;
     const { error } = await client.storage.from(bucket).upload(photoPath, optimized, {
