@@ -56,6 +56,22 @@ Deno.serve(async (request) => {
 
   const service = createClient(url, serviceKey, { auth: { persistSession: false } });
 
+  // Public access exposes the complete viewer directory, never membership or link tokens.
+  // Keep database RLS and private storage policies unchanged: this endpoint is read-only.
+  if (payload.action === 'read-public') {
+    if (Deno.env.get('PUBLIC_DIRECTORY_ENABLED') !== 'true') {
+      return respond(403, { error: 'Public viewing is not enabled. An administrator must finish the website update.' });
+    }
+    const { data: stateRow, error: stateError } = await service.from('org_state').select('state').eq('id', 1).single();
+    if (stateError || !Array.isArray(stateRow?.state?.people) || !Array.isArray(stateRow?.state?.departments)) return respond(503, { error: 'The directory is temporarily unavailable.' });
+    try {
+      const photoUrls = await signDirectoryPhotos(service, stateRow.state);
+      return respond(200, { state: stateRow.state, photoUrls });
+    } catch {
+      return respond(503, { error: 'Directory photos could not be loaded. Please try again later.' });
+    }
+  }
+
   if (payload.action === 'read-link') {
     const requestOrigin = request.headers.get('Origin');
     if (requestOrigin && requestOrigin !== new URL(appOrigin).origin) return respond(403, { error: 'Viewer links are only accepted from the org chart website.' });

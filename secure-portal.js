@@ -11,6 +11,11 @@
   let viewerPollTimer = null;
   let lastActivatedSessionKey = null;
   let activationQueue = Promise.resolve();
+  let accessVersion = 0;
+  const callbackParams = new URLSearchParams(location.hash.slice(1));
+  const callbackError = callbackParams.get('error_description');
+  let passwordSetupRequired = ['invite', 'recovery'].includes(callbackParams.get('type'));
+  try { passwordSetupRequired ||= sessionStorage.getItem('org-password-setup') === 'pending'; } catch {}
   let suppressStorageSync = false;
   let photoMigrationActive = false;
   let photoRefreshTimer;
@@ -85,9 +90,27 @@
     if (!suppressStorageSync && currentRole === 'admin' && dataKeys.has(key)) scheduleSave();
   };
 
-  function showLogin(message = 'This directory is shared by invitation. Sign in with the email address that was invited.') {
-    showGate('Sign in to continue', message, `<form id="org-login-form"><label>Invited email address<input name="email" type="email" autocomplete="email" required></label><label>Optional one-time migration file<input name="migrationFile" type="file" accept="application/json"><small>Use only if you exported your existing local directory.</small></label><button type="submit">Email me a sign-in link</button></form>`);
-    document.getElementById('org-login-form').addEventListener('submit', sendSignInLink);
+  function showLogin(message = 'Sign in with your invited administrator email and password. Viewing the directory does not require an account.') {
+    showGate('Administrator sign-in', message, '<form id="org-login-form"><label>Email address<input name="email" type="email" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form><div class="security-actions"><button type="button" class="secondary-action" id="org-forgot-password">Set or reset password</button><button type="button" class="secondary-action" id="org-return-viewer">Back to directory</button></div>');
+    document.getElementById('org-login-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const values = new FormData(form);
+      const feedback = document.getElementById('security-feedback');
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const { data, error } = await client.auth.signInWithPassword({ email: String(values.get('email')).trim(), password: String(values.get('password')) });
+        if (error) throw error;
+        form.reset();
+        await queueSessionActivation(data.session);
+      } catch (error) { feedback.textContent = error.message || 'Could not sign in. Try again.'; }
+      finally { button.disabled = false; }
+    });
+    document.getElementById('org-forgot-password').addEventListener('click', showPasswordRecovery);
+    document.getElementById('org-return-viewer').addEventListener('click', () => {
+      activateViewerLink().catch(error => showLogin(error.message));
+    });
   }
 
   function queueSessionActivation(session) {
@@ -101,30 +124,57 @@
     return activationQueue;
   }
 
-  async function sendSignInLink(event) {
-    event.preventDefault();
-    const formData = new FormData(event.currentTarget);
-    const email = formData.get('email').trim().toLowerCase();
-    const feedback = document.getElementById('security-feedback');
-    feedback.textContent = 'Checking invitation and sending sign-in link…';
-    const importFile = formData.get('migrationFile');
-    if (importFile instanceof File && importFile.size > 0) {
+  function showPasswordRecovery() {
+    showGate('Set or reset password', 'For an existing invited account, request an email to verify your identity and choose a password. Email delivery limits still apply.', '<form id="org-recovery-form"><label>Invited email address<input name="email" type="email" autocomplete="username" required></label><button type="submit">Email password setup link</button></form><button type="button" class="secondary-action" id="org-back-login">Back to sign-in</button>');
+    document.getElementById('org-back-login').addEventListener('click', () => showLogin());
+    document.getElementById('org-recovery-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const button = form.querySelector('button');
+      const feedback = document.getElementById('security-feedback');
+      button.disabled = true;
       try {
-        const imported = JSON.parse(await importFile.text());
-        if (!Array.isArray(imported.departments) || !Array.isArray(imported.people)) throw new Error();
-        originalSetItem('org-chart-pending-import', JSON.stringify(imported));
-      } catch {
-        feedback.textContent = 'That migration file is not a valid org chart export.';
-        return;
-      }
-    }
-    const { error } = await client.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false, emailRedirectTo: authRedirectUrl },
+        const {error} = await client.auth.resetPasswordForEmail(String(new FormData(form).get('email')).trim(), {redirectTo: authRedirectUrl});
+        if (error) throw error;
+        feedback.textContent = 'If the address is eligible, a password setup email will arrive. Open only the newest email.';
+      } catch (error) { feedback.textContent = 'Could not send the password email: ' + error.message; }
+      finally { button.disabled = false; }
     });
-    feedback.textContent = error
-      ? `Supabase could not send the sign-in link: ${error.message}`
-      : 'If this email has been invited, a secure sign-in link is on its way.';
+  }
+
+  function showPasswordSetup() {
+    try { sessionStorage.setItem('org-password-setup', 'pending'); } catch {}
+    showGate('Choose your password', 'Set a password for your verified account. Use at least 12 characters and a password you do not use elsewhere.', '<form id="org-password-form"><label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="12" required></label><button type="submit">Save password</button></form><button type="button" class="secondary-action" id="org-cancel-password">Cancel and sign out</button>');
+    document.getElementById('org-cancel-password').addEventListener('click', async () => {
+      const {error} = await client.auth.signOut();
+      if (error) { document.getElementById('security-feedback').textContent = error.message; return; }
+      passwordSetupRequired = false;
+      try { sessionStorage.removeItem('org-password-setup'); } catch {}
+      await queueSessionActivation(null);
+    });
+    document.getElementById('org-password-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form = event.currentTarget;
+      const values = new FormData(form);
+      const feedback = document.getElementById('security-feedback');
+      const password = String(values.get('password'));
+      if (password.length < 12 || password !== values.get('confirm')) { feedback.textContent = 'Enter matching passwords of at least 12 characters.'; return; }
+      const button = form.querySelector('button');
+      button.disabled = true;
+      try {
+        const {error} = await client.auth.updateUser({password});
+        if (error) throw error;
+        passwordSetupRequired = false;
+        try { sessionStorage.removeItem('org-password-setup'); } catch {}
+        history.replaceState(null, '', location.pathname + location.search);
+        form.reset();
+        const {data, error: sessionError} = await client.auth.getSession();
+        if (sessionError) throw sessionError;
+        lastActivatedSessionKey = null;
+        await queueSessionActivation(data.session);
+      } catch (error) { feedback.textContent = error.message || 'Could not save the password.'; }
+      finally { button.disabled = false; }
+    });
   }
 
   function readLocalState() {
@@ -249,6 +299,7 @@
     setSaveStatus('Saving shared changes…');
     clearTimeout(saveTimer);
     saveTimer = setTimeout(async () => {
+      if (currentRole !== 'admin' || !currentUser) return;
       const state = structuredClone(collectState());
       const { error } = await client.from('org_state').update({
         state,
@@ -292,25 +343,26 @@
     document.querySelector('.org-session-toolbar')?.remove();
     const toolbar = document.createElement('div');
     toolbar.className = 'org-session-toolbar';
-    const displayUser = currentRole === 'link-viewer' ? 'Shared viewing link' : currentUser?.email || 'Signed in';
-    const displayRole = currentRole === 'admin' ? 'Administrator' : 'Viewer';
-    toolbar.innerHTML = `<span>${escapeHtml(displayUser)} · ${displayRole}</span><span id="org-save-status">Shared directory</span><button id="org-sign-out" type="button">${currentRole === 'link-viewer' ? 'Exit shared view' : 'Sign out'}</button>`;
-    const header = document.querySelector('.top');
-    header?.insertAdjacentElement('afterend', toolbar);
+    const admin = currentRole === 'admin';
+    toolbar.innerHTML = '<span>' + (admin ? escapeHtml(currentUser?.email) + ' · Administrator' : 'Viewer') + '</span><span id="org-save-status">Shared directory</span><button id="org-sign-out" type="button">' + (admin ? 'Sign out' : 'Administrator sign-in') + '</button>';
+    document.querySelector('.top')?.insertAdjacentElement('afterend', toolbar);
     document.getElementById('org-sign-out').addEventListener('click', async () => {
-      clearLocalDirectory();
-      if (currentRole === 'link-viewer') {
-        localStorage.removeItem('org-chart-view-token');
-        viewerLinkActive = false;
-        if (viewerPollTimer) clearInterval(viewerPollTimer);
-        showLogin();
-        return;
+      if (!admin) { showLogin(); return; }
+      if (photoMigrationActive || stateFingerprint(collectState()) !== lastServerState) {
+        alert('Wait for all changes to save before signing out.'); return;
       }
-      currentRole = null;
-      currentUser = null;
-      window.orgAuthRole = null;
-      await client.auth.signOut();
+      const {error} = await client.auth.signOut();
+      if (error) { alert('Could not sign out: ' + error.message); return; }
+      window.closeAdd?.();
+      await queueSessionActivation(null);
     });
+    if (admin) {
+      const passwordButton = document.createElement('button');
+      passwordButton.type = 'button';
+      passwordButton.textContent = 'Change password';
+      passwordButton.addEventListener('click', () => { passwordSetupRequired = true; showPasswordSetup(); });
+      toolbar.appendChild(passwordButton);
+    }
 
     const footerActions = document.querySelector('.editor-footer>div');
     const websiteButton = footerActions?.querySelector('button[onclick*="showAdmin"]');
@@ -353,10 +405,24 @@
   };
 
   async function activateSession(session) {
+    // Refreshing the same administrator session must not replace an in-progress edit.
+    if (session?.user?.id === currentUser?.id && currentRole === 'admin' && !passwordSetupRequired && !document.getElementById(gateId)) {
+      currentUser = session.user;
+      return;
+    }
+    ++accessVersion;
+    viewerLinkActive = false;
+    clearInterval(viewerPollTimer);
+    clearInterval(photoRefreshTimer);
+    clearTimeout(saveTimer);
+    if (realtimeChannel) { client.removeChannel(realtimeChannel); realtimeChannel = null; }
+    currentRole = null;
+    window.orgAuthRole = null;
     if (!session?.user) {
       currentUser = null;
-      currentRole = null;
-      showLogin();
+      passwordSetupRequired = false;
+      try { sessionStorage.removeItem('org-password-setup'); } catch {}
+      await activateViewerLink();
       return;
     }
     currentUser = session.user;
@@ -372,6 +438,7 @@
     }
     currentRole = member.role;
     window.orgAuthRole = currentRole;
+    if (passwordSetupRequired) { showPasswordSetup(); return; }
     const { data: row, error } = await client.from('org_state').select('state').eq('id', 1).single();
     if (error) {
       currentRole = null;
@@ -514,7 +581,7 @@
 
   function showSharingPanel() {
     window.requireAdmin(() => {
-      document.getElementById('modal').innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Access control</span><h2>Share the directory</h2><p>Anyone with the private viewer link can view. Link holders can forward it, and the same link stays valid without expiration. Signed-in administrators can edit. Up to ten admins are allowed.</p><div class="admin-section"><h3>Viewer link</h3><p id="org-view-link-status">Checking link status…</p><div class="link-tools"><button type="button" class="primary" id="org-create-view-link">Get permanent viewer link</button></div><div id="org-view-link-result"></div></div><form id="org-invite-form" class="admin-section"><h3>Named access</h3><p>Optional email-based accounts can be assigned Viewer or Administrator access.</p><div class="admin-grid"><label class="admin-wide">Email address<input name="email" type="email" required placeholder="person@example.com"></label><label>Access level<select name="role"><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Invite by email</button></div></form><div class="admin-section"><h3>Named accounts</h3><p>Change an account email or role, or revoke that account’s access. Revoking access does not delete their Supabase identity.</p><div id="org-share-members" class="share-list"></div></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button></div></section></div>`;
+      document.getElementById('modal').innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" onclick="closeAdd()">×</button><span class="kicker">Access control</span><h2>Share the directory</h2><p>Anyone can view and print using the normal website address. Existing viewer links also continue to work. Only signed-in administrators can edit. Up to ten admins are allowed.</p><div class="admin-section"><h3>Viewer link</h3><p id="org-view-link-status">Checking link status…</p><div class="link-tools"><button type="button" class="primary" id="org-create-view-link">Get permanent viewer link</button></div><div id="org-view-link-result"></div></div><form id="org-invite-form" class="admin-section"><h3>Named access</h3><p>Viewing needs no account. Invite an administrator here to verify their email and set their own password. Existing Viewer accounts remain read-only.</p><div class="admin-grid"><label class="admin-wide">Email address<input name="email" type="email" required placeholder="person@example.com"></label><label>Access level<select name="role"><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label><button class="primary" type="submit">Invite by email</button></div></form><div class="admin-section"><h3>Named accounts</h3><p>Change an account email or role, or revoke that account’s access. Revoking access does not delete their Supabase identity.</p><div id="org-share-members" class="share-list"></div></div><div class="admin-actions"><button type="button" class="cancel" onclick="closeAdd()">Close</button></div></section></div>`;
       document.getElementById('org-create-view-link').addEventListener('click', async () => {
         const button = document.getElementById('org-create-view-link');
         button.disabled = true;
@@ -532,7 +599,7 @@
         feedback.disabled = true;
         try {
           const result = await callSharingFunction({ action: 'invite', email: data.get('email'), role: data.get('role') });
-          alert(result.invitationSent ? 'Invitation sent. The recipient can follow the email link to sign in.' : 'Access granted. This email already has an account; ask them to request a sign-in link from the directory.');
+          alert(result.invitationSent ? 'Invitation sent. The recipient can follow the email link to verify their email and set a password.' : 'Access granted. This email already has an account; ask them to sign in with their password, or use Set or reset password.');
           inviteForm.reset();
           await refreshShareList();
         } catch (error) { alert(error.message); }
@@ -628,45 +695,31 @@
     URL.revokeObjectURL(url);
   }
 
-  async function activateViewerLink(token) {
-    const { data, error } = await client.functions.invoke('manage-sharing', { body: { action: 'read-link', token } });
-    if (error || !data?.state) {
-      viewerLinkActive = false;
-      localStorage.removeItem('org-chart-view-token');
-      showGate('Viewer link unavailable', data?.error || error?.message || 'This viewer link is invalid or the directory is temporarily unavailable.');
-      return;
-    }
+  async function activateViewerLink() {
+    const version = ++accessVersion;
+    const result = await callSharingFunction({ action: 'read-public' });
+    if (version !== accessVersion) return;
+    await window.OrgPhotos.ensure(result.state, result.photoUrls || []);
+    if (version !== accessVersion) return;
     viewerLinkActive = true;
     currentUser = null;
-    currentRole = 'link-viewer';
+    currentRole = 'public-viewer';
     window.orgAuthRole = 'viewer';
-    await window.OrgPhotos.ensure(data.state, data.photoUrls || []);
-    applySharedState(data.state);
-    // Remembering a verified link is convenient, but storage failure must not
-    // deny viewing. If it cannot be saved, keep the original URL token intact.
-    try {
-      localStorage.setItem('org-chart-view-token', token);
-      history.replaceState(null, '', `${location.pathname}${location.search}`);
-    } catch (error) {
-      console.warn('Viewer link could not be remembered in this browser.', error.name);
-    }
+    applySharedState(result.state);
+    localStorage.removeItem('org-chart-view-token');
+    if (new URLSearchParams(location.hash.slice(1)).has('view')) history.replaceState(null, '', location.pathname + location.search);
     setRoleControls();
-    if (viewerPollTimer) clearInterval(viewerPollTimer);
+    clearInterval(viewerPollTimer);
     viewerPollTimer = setInterval(async () => {
-      if (!viewerLinkActive) return;
-      const result = await client.functions.invoke('manage-sharing', { body: { action: 'read-link', token } });
-      if (result.error || !result.data?.state) {
-        viewerLinkActive = false;
-        localStorage.removeItem('org-chart-view-token');
-        clearInterval(viewerPollTimer);
-        clearLocalDirectory();
-        currentRole = null;
-        window.orgAuthRole = null;
-        showGate('Viewer link unavailable', 'The directory could not be loaded. Reopen your saved viewer link to try again.');
-        return;
-      }
-      await window.OrgPhotos.ensure(result.data.state, result.data.photoUrls || []);
-      applySharedState(result.data.state);
+      if (!viewerLinkActive || document.getElementById(gateId)) return;
+      try {
+        const update = await callSharingFunction({ action: 'read-public' });
+        if (!viewerLinkActive || version !== accessVersion || document.getElementById(gateId)) return;
+        await window.OrgPhotos.ensure(update.state, update.photoUrls || []);
+        if (!viewerLinkActive || version !== accessVersion || document.getElementById(gateId)) return;
+        applySharedState(update.state);
+        setSaveStatus('Shared directory');
+      } catch { setSaveStatus('Could not refresh. Reload when your connection returns.', true); }
     }, 5 * 60 * 1000);
   }
 
@@ -682,33 +735,21 @@
       auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
     });
     window.OrgPhotos.configure(client, () => currentRole === 'admin');
-    const urlViewerToken = new URLSearchParams(window.location.hash.slice(1)).get('view');
-    const viewerToken = urlViewerToken || localStorage.getItem('org-chart-view-token');
-    viewerLinkActive = Boolean(viewerToken);
-    client.auth.onAuthStateChange((_event, session) => {
+    client.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') passwordSetupRequired = true;
       setTimeout(() => {
-        if (viewerLinkActive && !session) return;
-        if (session && viewerLinkActive) {
-          viewerLinkActive = false;
-          localStorage.removeItem('org-chart-view-token');
-        }
+        if (event === 'INITIAL_SESSION' && callbackError && !session) return;
         queueSessionActivation(session);
       }, 0);
     });
     const { data: { session }, error } = await client.auth.getSession();
-    if (error) throw error;
-    if (session) {
-      if (viewerLinkActive) {
-        viewerLinkActive = false;
-        localStorage.removeItem('org-chart-view-token');
-        history.replaceState(null, '', `${location.pathname}${location.search}`);
-      }
-      await queueSessionActivation(session);
-    } else if (viewerToken) {
-      await activateViewerLink(viewerToken);
-    } else {
-      await queueSessionActivation(null);
+    if (error) { showLogin('Could not complete sign-in: ' + error.message); return; }
+    if (callbackError && !session) {
+      history.replaceState(null, '', location.pathname + location.search);
+      showLogin('The email link could not sign you in: ' + callbackError + '. You can use your password or request a new password setup email.');
+      return;
     }
+    await queueSessionActivation(session);
   }
 
   start().catch((error) => showGate('Could not connect', error.message || 'The secure directory service could not be reached.'));

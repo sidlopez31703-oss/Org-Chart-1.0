@@ -19,21 +19,22 @@ function openDept(d){dept=d;selected=null;render()}function nodes(list,level){re
 document.head.insertAdjacentHTML('beforeend', '<style>.details-actions{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:20px}.details-actions .text-button{border:0;background:none;color:#003b5c;font-size:12px;font-weight:700;padding:0;cursor:pointer}.details-actions .delete{float:none;margin:0}</style>');
 function showEditPosition(id) {
 }
-function showEditByPid() {
-	const pid = prompt('Enter the Position ID (PID) to edit, for example OP-101:', '0000');
-	if (!pid) return;
-	const person = people.find((entry) => entry[5].toLowerCase() === pid.trim().toLowerCase());
-	if (!person) { alert('No position was found with that PID. Use Add position to create it first.'); return; }
-	const name = prompt('Full name:', person[1]); if (name === null) return;
-	const title = prompt('Full position title:', person[2]); if (title === null) return;
-	const department = prompt('Department:', person[3]); if (department === null) return;
-	const level = prompt('Level: Executive, Director, Manager, or Team:', person[4]); if (level === null) return;
-	const phone = prompt('Mobile phone:', person[6]); if (phone === null) return;
-	const desk = prompt('Desk phone:', person[7]); if (desk === null) return;
-	const email = prompt('Email:', person[8]); if (email === null) return;
-	person[1] = name.trim(); person[2] = title.trim(); person[3] = department.trim(); person[4] = level.trim(); person[6] = phone.trim(); person[7] = desk.trim(); person[8] = email.trim();
-	savePeople(); selected = person; dept = department.trim(); render();
-}
+// Test funcion to show admin
+// function showEditByPid() {
+// 	const pid = prompt('Enter the Position ID (PID) to edit, for example OP-101:', '0000');
+// 	if (!pid) return;
+// 	const person = people.find((entry) => entry[5].toLowerCase() === pid.trim().toLowerCase());
+// 	if (!person) { alert('No position was found with that PID. Use Add position to create it first.'); return; }
+// 	const name = prompt('Full name:', person[1]); if (name === null) return;
+// 	const title = prompt('Full position title:', person[2]); if (title === null) return;
+// 	const department = prompt('Department:', person[3]); if (department === null) return;
+// 	const level = prompt('Level: Executive, Director, Manager, or Team:', person[4]); if (level === null) return;
+// 	const phone = prompt('Mobile phone:', person[6]); if (phone === null) return;
+// 	const desk = prompt('Desk phone:', person[7]); if (desk === null) return;
+// 	const email = prompt('Email:', person[8]); if (email === null) return;
+// 	person[1] = name.trim(); person[2] = title.trim(); person[3] = department.trim(); person[4] = level.trim(); person[6] = phone.trim(); person[7] = desk.trim(); person[8] = email.trim();
+// 	savePeople(); selected = person; dept = department.trim(); render();
+// } 
 const savedPeople = localStorage.getItem('org-chart-people');
 if (savedPeople) { try { people = JSON.parse(savedPeople); render(); } catch (error) { localStorage.removeItem('org-chart-people'); } }
 function savePeople() { localStorage.setItem('org-chart-people', JSON.stringify(people)); }
@@ -644,5 +645,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261014-background-scope', () => loadSecurityScript('./org-chart-extensions.js?v=20261014-background-scope', () => loadSecurityScript('./secure-portal.js?v=20261014-sharing-error-details')))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261014-background-scope', () => loadSecurityScript('./org-chart-extensions.js?v=20261014-background-scope', () => loadSecurityScript('./secure-portal.js?v=20261019-password-access')))));
 </script></body></html>
