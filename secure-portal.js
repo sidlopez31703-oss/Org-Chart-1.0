@@ -13,7 +13,8 @@
   let activationQueue = Promise.resolve();
   let accessVersion = 0;
   const callbackParams = new URLSearchParams(location.hash.slice(1));
-  const callbackError = callbackParams.get('error_description');
+  let callbackError = callbackParams.get('error_description');
+  const failedEmailCallback = Boolean(callbackError);
   let passwordSetupRequired = ['invite', 'recovery'].includes(callbackParams.get('type'));
   try { passwordSetupRequired ||= sessionStorage.getItem('org-password-setup') === 'pending'; } catch {}
   let suppressStorageSync = false;
@@ -90,21 +91,79 @@
     if (!suppressStorageSync && currentRole === 'admin' && dataKeys.has(key)) scheduleSave();
   };
 
-  function showLogin(message = 'Sign in with your invited administrator email and password. Viewing the directory does not require an account.') {
+  const passwordHelp = 'Sign in with your administrator email and website password. You do not need an email link to sign in.';
+  const eyeIcon = '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/></svg>';
+  const hiddenEyeIcon = '<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m3 3 18 18M9.8 5.2A12 12 0 0 1 12 5c6.5 0 10 7 10 7a19 19 0 0 1-3.1 3.9M6.1 6.1A21 21 0 0 0 2 12s3.5 7 10 7a12 12 0 0 0 5.9-1.6M10 10a3 3 0 0 0 4 4"/></svg>';
+
+  function enablePasswordVisibility() {
+    document.querySelectorAll('#' + gateId + ' input[type="password"]').forEach((input, index) => {
+      if (input.closest('.password-field')) return;
+      input.id ||= 'org-visible-password-' + index;
+      const field = document.createElement('span');
+      field.className = 'password-field';
+      input.replaceWith(field);
+      field.appendChild(input);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'password-toggle';
+      button.setAttribute('aria-controls', input.id);
+      button.setAttribute('aria-label', 'Show password');
+      button.setAttribute('aria-pressed', 'false');
+      button.title = 'Show password';
+      button.innerHTML = eyeIcon;
+      button.addEventListener('click', () => {
+        const visible = input.type === 'password';
+        input.type = visible ? 'text' : 'password';
+        const label = visible ? 'Hide password' : 'Show password';
+        button.setAttribute('aria-label', label);
+        button.setAttribute('aria-pressed', String(visible));
+        button.title = label;
+        button.innerHTML = visible ? hiddenEyeIcon : eyeIcon;
+      });
+      field.appendChild(button);
+    });
+  }
+
+  function clearEmailLinkError() {
+    if (!callbackError) return;
+    callbackError = null;
+    const fragment = new URLSearchParams(location.hash.slice(1));
+    for (const key of ['error', 'error_code', 'error_description']) fragment.delete(key);
+    const remaining = fragment.toString();
+    history.replaceState(null, '', location.pathname + location.search + (remaining ? '#' + remaining : ''));
+  }
+
+  document.head.insertAdjacentHTML('beforeend', '<style>.security-card{max-height:calc(100dvh - 44px);overflow-y:auto}.security-card .password-field{display:block;position:relative;margin-top:7px}.security-card .password-field input{margin-top:0;padding-right:52px}.security-card .password-toggle{position:absolute;right:1px;top:1px;bottom:1px;width:44px;padding:0;display:grid;place-items:center;border:0;background:transparent;color:#003b5c}.security-card .password-toggle:focus-visible{outline:2px solid #0072a8;outline-offset:-4px}.security-card .password-toggle:hover{background:#eaf2f5}.security-card #security-feedback:empty{display:none}</style>');
+
+  function showLogin(message = passwordHelp) {
     showGate('Administrator sign-in', message, '<form id="org-login-form"><label>Email address<input name="email" type="email" autocomplete="username" required></label><label>Password<input name="password" type="password" autocomplete="current-password" required></label><button type="submit">Sign in</button></form><div class="security-actions"><button type="button" class="secondary-action" id="org-forgot-password">Set or reset password</button><button type="button" class="secondary-action" id="org-return-viewer">Back to directory</button></div>');
-    document.getElementById('org-login-form').addEventListener('submit', async event => {
+    enablePasswordVisibility();
+    const loginForm = document.getElementById('org-login-form');
+    loginForm.addEventListener('input', () => {
+      clearEmailLinkError();
+      document.getElementById('security-message').textContent = passwordHelp;
+      document.getElementById('security-feedback').textContent = '';
+    });
+    loginForm.addEventListener('submit', async event => {
       event.preventDefault();
       const form = event.currentTarget;
       const values = new FormData(form);
       const feedback = document.getElementById('security-feedback');
-      const button = form.querySelector('button');
+      const button = form.querySelector('button[type="submit"]');
+      clearEmailLinkError();
+      document.getElementById('security-message').textContent = passwordHelp;
+      feedback.textContent = 'Checking your email and password…';
       button.disabled = true;
       try {
-        const { data, error } = await client.auth.signInWithPassword({ email: String(values.get('email')).trim(), password: String(values.get('password')) });
+        const { data, error } = await client.auth.signInWithPassword({ email: String(values.get('email')).trim().toLowerCase(), password: String(values.get('password')) });
         if (error) throw error;
         form.reset();
         await queueSessionActivation(data.session);
-      } catch (error) { feedback.textContent = error.message || 'Could not sign in. Try again.'; }
+      } catch (error) {
+        feedback.textContent = error.code === 'invalid_credentials' || /invalid login credentials/i.test(error.message || '')
+          ? 'Email or password not recognized. Check your administrator email and website password. You can use the eye button to check what you typed, or select Set or reset password.'
+          : (error.message || 'Could not sign in. Check your connection and try again.');
+      }
       finally { button.disabled = false; }
     });
     document.getElementById('org-forgot-password').addEventListener('click', showPasswordRecovery);
@@ -130,7 +189,7 @@
     document.getElementById('org-recovery-form').addEventListener('submit', async event => {
       event.preventDefault();
       const form = event.currentTarget;
-      const button = form.querySelector('button');
+      const button = form.querySelector('button[type="submit"]');
       const feedback = document.getElementById('security-feedback');
       button.disabled = true;
       try {
@@ -145,6 +204,7 @@
   function showPasswordSetup() {
     try { sessionStorage.setItem('org-password-setup', 'pending'); } catch {}
     showGate('Choose your password', 'Set a password for your verified account. Use at least 12 characters and a password you do not use elsewhere.', '<form id="org-password-form"><label>New password<input name="password" type="password" autocomplete="new-password" minlength="12" required></label><label>Confirm password<input name="confirm" type="password" autocomplete="new-password" minlength="12" required></label><button type="submit">Save password</button></form><button type="button" class="secondary-action" id="org-cancel-password">Cancel and sign out</button>');
+    enablePasswordVisibility();
     document.getElementById('org-cancel-password').addEventListener('click', async () => {
       const {error} = await client.auth.signOut();
       if (error) { document.getElementById('security-feedback').textContent = error.message; return; }
@@ -159,7 +219,7 @@
       const feedback = document.getElementById('security-feedback');
       const password = String(values.get('password'));
       if (password.length < 12 || password !== values.get('confirm')) { feedback.textContent = 'Enter matching passwords of at least 12 characters.'; return; }
-      const button = form.querySelector('button');
+      const button = form.querySelector('button[type="submit"]');
       button.disabled = true;
       try {
         const {error} = await client.auth.updateUser({password});
@@ -738,15 +798,15 @@
     client.auth.onAuthStateChange((event, session) => {
       if (event === 'PASSWORD_RECOVERY') passwordSetupRequired = true;
       setTimeout(() => {
-        if (event === 'INITIAL_SESSION' && callbackError && !session) return;
+        if (event === 'INITIAL_SESSION' && failedEmailCallback && !session) return;
         queueSessionActivation(session);
       }, 0);
     });
     const { data: { session }, error } = await client.auth.getSession();
     if (error) { showLogin('Could not complete sign-in: ' + error.message); return; }
     if (callbackError && !session) {
-      history.replaceState(null, '', location.pathname + location.search);
-      showLogin('The email link could not sign you in: ' + callbackError + '. You can use your password or request a new password setup email.');
+      clearEmailLinkError();
+      showLogin('This email sign-in or password-reset link is invalid or has expired. It did not verify your password or authorize a password change. If you already set a website password, sign in below. Otherwise request a new password setup email.');
       return;
     }
     await queueSessionActivation(session);
