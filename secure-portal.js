@@ -183,21 +183,107 @@
     return activationQueue;
   }
 
-  function showPasswordRecovery() {
-    showGate('Set or reset password', 'For an existing invited account, request an email to verify your identity and choose a password. Email delivery limits still apply.', '<form id="org-recovery-form"><label>Invited email address<input name="email" type="email" autocomplete="username" required></label><button type="submit">Email password setup link</button></form><button type="button" class="secondary-action" id="org-back-login">Back to sign-in</button>');
+  const recoverySendAfter = new Map();
+  let recoverySending = false;
+
+  function recoveryError(error) {
+    if (error.status === 429 || /rate.?limit|too many/i.test(error.message || '')) {
+      return 'Supabase has temporarily limited requests. This attempt did not complete. Stop requesting codes and wait before trying again. Email sending limits still apply.';
+    }
+    return error.message || 'Could not complete the request. Check your connection and try again.';
+  }
+
+  async function sendRecoveryCode(email) {
+    if (recoverySending) throw new Error('A code request is already in progress.');
+    if (Date.now() < (recoverySendAfter.get(email) || 0)) throw new Error('Wait at least 60 seconds between code requests. Use the newest email you already received.');
+    recoverySending = true;
+    try {
+      const {error} = await client.auth.resetPasswordForEmail(email, {redirectTo: authRedirectUrl});
+      if (error) throw error;
+      recoverySendAfter.set(email, Date.now() + 60000);
+    } catch (error) {
+      if (error.status === 429 || /rate.?limit|too many/i.test(error.message || '')) recoverySendAfter.set(email, Date.now() + 60000);
+      throw error;
+    } finally { recoverySending = false; }
+  }
+
+  function showPasswordRecovery(prefillEmail = '') {
+    // Click listeners receive an Event, not an email string.
+    const email = typeof prefillEmail === 'string' ? prefillEmail : '';
+    showGate('Set or reset password', 'Request a verification code for your existing invited account. Enter the code here, then choose a new password. You do not need to click a reset link in your email.', '<form id="org-recovery-form"><label>Invited email address<input name="email" type="email" autocomplete="username" required value="' + escapeHtml(email) + '"></label><button type="submit">Email verification code</button><button type="button" class="secondary-action" id="org-have-code">I already have a code</button></form><button type="button" class="secondary-action" id="org-back-login">Back to sign-in</button>');
     document.getElementById('org-back-login').addEventListener('click', () => showLogin());
-    document.getElementById('org-recovery-form').addEventListener('submit', async event => {
+    const form = document.getElementById('org-recovery-form');
+    document.getElementById('org-have-code').addEventListener('click', () => {
+      if (form.reportValidity()) showRecoveryCode(String(new FormData(form).get('email')).trim().toLowerCase());
+    });
+    form.addEventListener('submit', async event => {
       event.preventDefault();
-      const form = event.currentTarget;
+      const email = String(new FormData(form).get('email')).trim().toLowerCase();
       const button = form.querySelector('button[type="submit"]');
       const feedback = document.getElementById('security-feedback');
+      feedback.textContent = 'Requesting a verification code…';
       button.disabled = true;
       try {
-        const {error} = await client.auth.resetPasswordForEmail(String(new FormData(form).get('email')).trim(), {redirectTo: authRedirectUrl});
-        if (error) throw error;
-        feedback.textContent = 'If the address is eligible, a password setup email will arrive. Open only the newest email.';
-      } catch (error) { feedback.textContent = 'Could not send the password email: ' + error.message; }
+        await sendRecoveryCode(email);
+        if (form.isConnected) showRecoveryCode(email, 'If this address is eligible, a code will arrive by email. Use only the newest code.');
+      } catch (error) { feedback.textContent = 'Could not send the password code: ' + recoveryError(error); }
       finally { button.disabled = false; }
+    });
+  }
+
+  function showRecoveryCode(email, message = 'Enter the verification code from your newest password email. Keep this page open while checking Outlook.') {
+    showGate('Enter your verification code', message, '<form id="org-code-form"><label>Email address<input name="email" type="email" autocomplete="username" readonly value="' + escapeHtml(email) + '"></label><label>Verification code<input name="code" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9 ]{6,20}" maxlength="20" required aria-describedby="org-code-help"></label><p id="org-code-help">Enter every digit shown in the email, including any zeros at the beginning. If the email only contains a reset button, the website administrator needs to update the Supabase Reset password email template.</p><button type="submit">Verify code</button></form><div class="security-actions"><button type="button" class="secondary-action" id="org-resend-code">Request another code</button><button type="button" class="secondary-action" id="org-change-recovery-email">Change email</button><button type="button" class="secondary-action" id="org-code-back-login">Back to sign-in</button></div>');
+    document.getElementById('org-change-recovery-email').addEventListener('click', () => showPasswordRecovery(email));
+    document.getElementById('org-code-back-login').addEventListener('click', () => showLogin());
+    const form = document.getElementById('org-code-form');
+    const resend = document.getElementById('org-resend-code');
+    let verifying = false;
+    function updateResend() {
+      const seconds = Math.max(0, Math.ceil(((recoverySendAfter.get(email) || 0) - Date.now()) / 1000));
+      resend.disabled = verifying || recoverySending || seconds > 0;
+      resend.textContent = seconds ? 'Request another code (' + seconds + 's)' : 'Request another code';
+    }
+    updateResend();
+    const countdown = setInterval(() => {
+      if (!form.isConnected) { clearInterval(countdown); return; }
+      updateResend();
+    }, 1000);
+    resend.addEventListener('click', async () => {
+      resend.disabled = true;
+      const feedback = document.getElementById('security-feedback');
+      try {
+        await sendRecoveryCode(email);
+        feedback.textContent = 'If the address is eligible, another code will arrive. Use only the newest code.';
+      } catch (error) { feedback.textContent = 'Could not send another code: ' + recoveryError(error); }
+      finally { if (form.isConnected) updateResend(); }
+    });
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      if (verifying) return;
+      const token = String(new FormData(form).get('code')).replace(/\s/g, '');
+      const feedback = document.getElementById('security-feedback');
+      if (!/^[0-9]{6,10}$/.test(token)) { feedback.textContent = 'Enter the complete numeric code from the email.'; return; }
+      const button = form.querySelector('button[type="submit"]');
+      button.disabled = true;
+      verifying = true;
+      updateResend();
+      feedback.textContent = 'Verifying your code…';
+      const previousSetupRequired = passwordSetupRequired;
+      passwordSetupRequired = true;
+      try {
+        // Only Supabase can exchange a valid recovery code for a session.
+        const {data, error} = await client.auth.verifyOtp({email, token, type: 'recovery'});
+        if (error) throw error;
+        if (!data?.session?.user) throw new Error('Verification did not create a session. Please try a new code.');
+        form.reset();
+        lastActivatedSessionKey = null;
+        await queueSessionActivation(data.session);
+      } catch (error) {
+        passwordSetupRequired = previousSetupRequired;
+        feedback.textContent = error.code === 'otp_expired' || /expired|invalid.*token|token.*invalid/i.test(error.message || '')
+          ? 'That code is invalid, expired, or already used. Check the newest email and the address above. Request a new code when the wait ends if needed.'
+          : recoveryError(error);
+      } finally { verifying = false; button.disabled = false; if (form.isConnected) updateResend(); }
     });
   }
 

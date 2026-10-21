@@ -645,5 +645,5 @@ function loadSecurityScript(source, onload) {
 	script.onerror = securityLoadFailed;
 	document.head.appendChild(script);
 }
-loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261014-background-scope', () => loadSecurityScript('./org-chart-extensions.js?v=20261014-background-scope', () => loadSecurityScript('./secure-portal.js?v=20261021-password-visibility')))));
+loadSecurityScript('./supabase-config.js', () => loadSecurityScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2', () => loadSecurityScript('./org-photo-storage.js?v=20261014-background-scope', () => loadSecurityScript('./org-chart-extensions.js?v=20261014-background-scope', () => loadSecurityScript('./secure-portal.js?v=20261021-recovery-code')))));
 </script></body></html>
