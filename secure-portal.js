@@ -20,6 +20,7 @@
   let suppressStorageSync = false;
   let photoMigrationActive = false;
   let photoRefreshTimer;
+  let refreshPhotoStorageStatus = null;
   const dataKeys = new Set([
     'org-chart-people',
     'org-chart-departments',
@@ -402,6 +403,7 @@
     });
     window.applySiteSettings?.();
     window.render?.();
+    refreshPhotoStorageStatus?.();
   }
 
   function collectState() {
@@ -768,14 +770,38 @@
   function showPhotoStoragePanel() {
     window.requireAdmin(() => {
       const modal = document.getElementById('modal');
-      modal.innerHTML = `<div class="modal"><section class="form admin-modal"><button type="button" class="close" id="org-photo-close">×</button><h2>Photo storage</h2><p>New JPG, PNG, and WebP uploads are automatically resized without cropping and saved privately.</p><p>Move the existing embedded photos to private storage to make the directory faster. Download a backup first; it keeps your original embedded photos.</p><div class="admin-actions"><button type="button" class="secondary" id="org-photo-backup">Download directory backup</button><button type="button" class="primary" id="org-photo-migrate" disabled>Move existing photos</button></div><p id="org-photo-progress" role="status"></p><button type="button" class="cancel" id="org-photo-done">Close</button></section></div>`;
+      modal.innerHTML = '<div class="modal"><section class="form admin-modal"><button type="button" class="close" id="org-photo-close">×</button><h2>Photo storage</h2><section class="admin-section" id="org-photo-summary" aria-live="polite"><h3 id="org-photo-migration-title"></h3><p id="org-photo-migration-description"></p><p id="org-photo-counts"></p></section><p><strong>Moving older photos is not a routine task.</strong> New uploaded image files are resized without cropping and stored separately automatically. You do not repeat migration after each upload. Only use Move existing photos if this panel finds older embedded images, for example after importing an old backup.</p><section class="admin-section"><h3>Directory backups</h3><p>Download directory backup saves the current records and settings. It does not move photos. Images already stored separately are represented by references; this JSON file alone does not back up those image files.</p><p>A photo folder on your computer is a separate backup. The website cannot check or update that folder. Keep current image copies and directory backups in an approved location.</p></section><div class="admin-actions"><button type="button" class="secondary" id="org-photo-backup">Download directory backup</button><button type="button" class="primary" id="org-photo-migrate" disabled>Move existing photos</button></div><p id="org-photo-progress" role="status"></p><button type="button" class="cancel" id="org-photo-done">Close</button></section></div>';
       let backupState;
       let revision;
       const status = document.getElementById('org-photo-progress');
       const migrateButton = document.getElementById('org-photo-migrate');
       const backupButton = document.getElementById('org-photo-backup');
+      const summary = document.getElementById('org-photo-summary');
+      function refreshMigrationSummary() {
+        if (!summary.isConnected) { refreshPhotoStorageStatus = null; return; }
+        const state = collectState();
+        const images = window.OrgPhotos.slots(state).map(slot => slot.owner[slot.key]).filter(value => typeof value === 'string' && value.trim());
+        const embedded = images.filter(value => value.startsWith('data:image/')).length;
+        const separate = images.filter(value => value.startsWith('org-photo:')).length;
+        const external = images.filter(value => /^https?:\/\//i.test(value)).length;
+        document.getElementById('org-photo-migration-title').textContent = embedded ? 'Older embedded photos found: ' + embedded : 'No migration needed';
+        document.getElementById('org-photo-migration-description').textContent = embedded
+          ? 'These older images are still inside the directory data. Download a current directory backup first, then move them once. New file uploads do not need this step.'
+          : external ? 'Your images use separate storage or external links. No embedded photos need moving.'
+          : separate ? 'Your photos are already stored separately. No move is needed.'
+          : 'There are no embedded photos to move.';
+        document.getElementById('org-photo-counts').textContent = 'Embedded image references: ' + embedded + ' · Private-storage image references: ' + separate + ' · External image links: ' + external;
+        const backupIsCurrent = backupState && stateFingerprint(backupState) === stateFingerprint(state) && stateFingerprint(state) === lastServerState;
+        migrateButton.disabled = photoMigrationActive || !embedded || !backupIsCurrent;
+        migrateButton.title = !embedded ? 'No older embedded photos were found. No move is needed.' : !backupIsCurrent ? 'Download a current directory backup before moving older photos.' : 'Move the older embedded photos to separate storage.';
+      }
+      refreshPhotoStorageStatus = refreshMigrationSummary;
+      refreshMigrationSummary();
       for (const id of ['org-photo-close', 'org-photo-done']) document.getElementById(id).onclick = () => { if (!photoMigrationActive) window.closeAdd(); };
       backupButton.onclick = async () => {
+        backupState = null;
+        revision = null;
+        migrateButton.disabled = true;
         backupButton.disabled = true;
         try {
           if (stateFingerprint(collectState()) !== lastServerState) throw new Error('Wait for all changes to save before downloading this backup.');
@@ -791,14 +817,14 @@
           anchor.click();
           setTimeout(() => URL.revokeObjectURL(backupUrl), 60000);
           const count = window.OrgPhotos.slots(backupState).filter(slot => String(slot.owner[slot.key] || '').startsWith('data:image/')).length;
-          status.textContent = count ? `${count} embedded photos found. Keep the downloaded backup, then click Move existing photos.` : 'Your photos are already stored separately. No move is needed.';
-          migrateButton.disabled = !count;
+          status.textContent = count ? `${count} embedded photos found. Keep the downloaded backup, then click Move existing photos.` : 'Directory backup downloaded. No migration needed; you do not need to move photos again after new uploads.';
+          refreshMigrationSummary();
         } catch (error) { status.textContent = error.message; }
         finally { backupButton.disabled = false; }
       };
       migrateButton.onclick = async () => {
         if (!backupState || photoMigrationActive) return;
-        if (stateFingerprint(collectState()) !== lastServerState) { status.textContent = 'Wait for changes to save, then download a fresh backup.'; return; }
+        if (stateFingerprint(collectState()) !== lastServerState || stateFingerprint(collectState()) !== stateFingerprint(backupState)) { status.textContent = 'The directory has changed. Wait for changes to save, then download a fresh backup.'; refreshMigrationSummary(); return; }
         photoMigrationActive = true;
         migrateButton.disabled = backupButton.disabled = true;
         clearTimeout(saveTimer);
@@ -820,6 +846,7 @@
           status.textContent = `Photos moved successfully. Directory data: ${(before / 1048576).toFixed(1)} MB → ${(after / 1048576).toFixed(2)} MB. Keep your backup.`;
           setSaveStatus('All changes saved for everyone.');
           backupState = null;
+          refreshMigrationSummary();
         } catch (error) { status.textContent = error.message; }
         finally {
           photoMigrationActive = false;
